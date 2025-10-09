@@ -1,0 +1,11 @@
+[requires]
+glfw/3.4
+glm/1.0.1
+vulkan-headers/1.4.313.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout
