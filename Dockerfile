@@ -29,4 +29,4 @@ RUN sudo dnf install -y \
 	xcb-util-devel \
 	libuuid-devel \
 	xcb-util-cursor-devel && \
-	pip install conan
+	python prepare.py --host --no-venv
