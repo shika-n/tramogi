@@ -1,67 +1,48 @@
 import os
 import pathlib
 import platform
-import shutil
 import subprocess
 import sys
 
-
-VENV_NAME = ".venv"
-CONAN_PROFILE_NAME = "project-sky-high"
-GLFW_VERSION = "3.4"
+import scripts.utils as utils
+import scripts.vars as vars
 
 
-def check_deps():
-    assert shutil.which("g++") is not None, "g++ required"
-    assert shutil.which("cmake") is not None, "CMake required"
-    assert shutil.which("ninja") is not None, "Ninja required"
-
-
-def get_container_engine() -> str:
-    podman = shutil.which("podman")
-    docker = shutil.which("docker")
-
-    assert podman is not None and \
-        docker is not None, \
-        "Docker or podman required"
-
-    if podman:
-        return podman
-
-    return docker
-
-
-def prepare_builder_container(container_engine: str) -> bool:
+def prepare_builder_container(container_engine: str):
     res = subprocess.run([
         container_engine,
         "build",
         ".",
         "-t",
-        "skyhigh-builder",
+        vars.IMAGE_NAME,
     ])
     if res.returncode != 0:
-        return False
+        raise RuntimeError("Failed to create base builder image")
 
-    return subprocess.run([
-        "podman",
+    os.mkdir(".conan2")
+
+    res = subprocess.run([
+        container_engine,
         "run",
         "--rm",
-        "-v", ".:${PWD}:Z",
-        "-w ${PWD}",
-        "skyhigh-builder",
-        "bash -c 'conan install . --build=missing && \
-            cmake . -G Ninja --preset conan-release'"
-    ]).returncode == 0
+        "-v", ".:/app:Z",
+        "-v", "./.conan2:/root/.conan2:Z",
+        vars.IMAGE_NAME,
+        "prepare.py", "--host", "--no-venv",
+    ])
+
+    if res.returncode != 0:
+        raise RuntimeError("Failed to prepare builder")
 
 
-def prepare_venv(os_name: str, current_folder: str) -> str | None:
+def prepare_venv(os_name: str, current_folder: str) -> str:
     bin_folder = "bin"
     if os_name == "Windows":
         bin_folder = "Scripts"
 
     venv_bin_path = os.path.join(
         current_folder,
-        VENV_NAME,
+        vars.VENV_NAME,
         bin_folder,
     )
 
@@ -73,85 +54,85 @@ def prepare_venv(os_name: str, current_folder: str) -> str | None:
         "python",
         "-m",
         "venv",
-        VENV_NAME,
+        vars.VENV_NAME,
     ])
 
     if res.returncode != 0:
-        print("Failed to create python venv")
-        return None
+        raise RuntimeError("Failed to create python venv")
 
     return venv_bin_path
 
 
-def install_conan(venv_bin_path: str) -> bool:
+def install_conan(venv_bin_path: str):
     pip_exec = os.path.join(
         venv_bin_path,
         "pip",
     )
-    return subprocess.run([
+    res = subprocess.run([
         pip_exec,
         "install",
         "conan",
-    ]).returncode == 0
+    ])
+
+    if res.returncode != 0:
+        raise RuntimeError("Failed to install conan")
 
 
-def prepare_conan(venv_bin_path) -> bool:
+def prepare_conan(venv_bin_path):
     conan_exec = os.path.join(venv_bin_path, "conan")
 
     res = subprocess.run([
         conan_exec,
         "profile",
         "path",
-        CONAN_PROFILE_NAME
+        vars.CONAN_PROFILE_NAME
     ])
     if res.returncode == 0:
-        return True
+        print("Conan profile exists")
+        return
 
-    return subprocess.run([
+    res = subprocess.run([
         conan_exec,
         "profile",
         "detect",
-        "--name=" + CONAN_PROFILE_NAME,
-    ]).returncode == 0
+        "--name=" + vars.CONAN_PROFILE_NAME,
+    ])
+
+    if res.returncode != 0:
+        raise RuntimeError("Failed to create conan profile")
 
 
-def build_glfw(venv_bin_path) -> bool:
+def install_project_deps(venv_bin_path):
     conan_exec = os.path.join(venv_bin_path, "conan")
     build_args = []
 
     res = subprocess.run([
         conan_exec,
         "list",
-        "glfw/" + GLFW_VERSION,
-    ])
-    if res.returncode != 0:
-        build_args.append("--build=glfw/" + GLFW_VERSION)
+        "glfw/" + vars.GLFW_VERSION,
+    ], capture_output=True)
+    if res.stdout.endswith(b"not found\n"):
+        build_args.append("--build=glfw/" + vars.GLFW_VERSION)
 
-    return subprocess.run([
+    res = subprocess.run([
         conan_exec,
         "install",
         ".",
-        "--profile:all=" + CONAN_PROFILE_NAME,
-    ] + build_args).returncode == 0
+        "--profile:all=" + vars.CONAN_PROFILE_NAME,
+    ] + build_args)
 
-
-def generate_cmake() -> bool:
-    return subprocess.run([
-        "cmake",
-        ".",
-        "-G",
-        "Ninja",
-        "--preset",
-        "conan-release",
-    ]).returncode == 0
+    if res.returncode != 0:
+        raise RuntimeError("Failed to install project dependencies")
 
 
 def main():
+    args = sys.argv[1:]
+
     os_name = platform.system()
     build_on_host = False
     use_venv = True
 
-    for arg in sys.argv:
+    for arg in args:
         match arg:
             case "--host":
                 build_on_host = True
@@ -159,25 +140,18 @@ def main():
                 use_venv = False
 
     if build_on_host:
-        check_deps()
+        utils.check_deps()
 
         current_folder = pathlib.Path(__file__).parent.resolve()
         venv_bin_path = ""
         if use_venv:
             venv_bin_path = prepare_venv(os_name, current_folder)
-            if venv_bin_path is None:
-                return
 
-        if not install_conan(venv_bin_path):
-            return
-        if not prepare_conan(venv_bin_path):
-            return
-        if not build_glfw(venv_bin_path):
-            return
-        if not generate_cmake():
-            return
+        install_conan(venv_bin_path)
+        prepare_conan(venv_bin_path)
+        install_project_deps(venv_bin_path)
     else:
-        container_engine = get_container_engine()
+        container_engine = utils.get_container_engine()
         prepare_builder_container(container_engine)
 
 

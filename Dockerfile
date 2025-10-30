@@ -1,32 +1,34 @@
 FROM fedora:42
+WORKDIR /app
 RUN sudo dnf install -y \
-	python3 \
-	python3-pip \
 	cmake \
 	g++ \
 	ninja \
-	libglvnd-devel \
+	python3 \
+	python3-pip \
 	mesa-libGL-devel \
-	libxcb-devel \
 	libfontenc-devel \
+	libglvnd-devel \
+	libstdc++-static \
+	libuuid-devel \
 	libXaw-devel \
+	libxcb-devel \
 	libXcomposite-devel \
 	libXcursor-devel \
+	libXdamage-devel \
 	libXdmcp-devel \
-	libXtst-devel \
 	libXinerama-devel \
 	libxkbfile-devel \
 	libXrandr-devel \
 	libXres-devel \
 	libXScrnSaver-devel \
-	xcb-util-wm-devel \
+	libXtst-devel \
+	libXv-devel \
+	libXxf86vm-devel \
+	xcb-util-cursor-devel \
+	xcb-util-devel \
 	xcb-util-image-devel \
 	xcb-util-keysyms-devel \
 	xcb-util-renderutil-devel \
-	libXdamage-devel \
-	libXxf86vm-devel \
-	libXv-devel \
-	xcb-util-devel \
-	libuuid-devel \
-	xcb-util-cursor-devel && \
-	python prepare.py --host --no-venv
+	xcb-util-wm-devel
+ENTRYPOINT [ "python" ]
