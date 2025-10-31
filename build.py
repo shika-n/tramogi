@@ -72,7 +72,7 @@ def run(project_dir: str):
         os.path.join(
             project_dir,
             "build",
-            "Release",
+            "Debug",
             "src",
             "SkyHigh",
         ),

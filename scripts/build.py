@@ -9,7 +9,7 @@ def generate_cmake():
         "-G",
         "Ninja",
         "--preset",
-        "conan-release",
+        "conan-debug",
     ])
 
     if res.returncode != 0:
@@ -23,7 +23,7 @@ def build() -> bool:
         "-C",
         os.path.join(
             "build",
-            "Release",
+            "Debug",
         ),
     ])
 

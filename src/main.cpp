@@ -1,8 +1,13 @@
+#include <cstdlib>
 #include <exception>
 #include <print>
+#include <stdexcept>
 
 #include <GLFW/glfw3.h>
-#include <stdexcept>
+#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan_raii.hpp>
+
+#include "macros.h"
 
 class ProjectSkyHigh {
 	public:
@@ -31,14 +36,28 @@ class ProjectSkyHigh {
 			glfwTerminate();
 
 		}
+
+	private:
+		void init() {
+			VkInstance instance;
+			VkApplicationInfo appInfo{};
+			appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+			appInfo.pApplicationName = "SkyHigh Engine";
+
+			std::println("App name: {}", appInfo.pApplicationName);
+		}
+
+		void main_loop() {
+
+		}
+
+		void cleanup() {
+
+		}
 };
 
 int main() {
-#ifdef NDEBUG
-	std::println("Running a release build");
-#else
-	std::println("Running a DEBUG build");
-#endif
+	DLOG("Running in DEBUG mode");
 
 	ProjectSkyHigh skyhigh;
 
@@ -46,8 +65,9 @@ int main() {
 		skyhigh.run();
 	} catch (const std::exception &e) {
 		std::println(stderr, "Error: {}", e.what());
+		return EXIT_FAILURE;
 	}
 
-	std::println("Exited successfully");
-	return 0;
+	DLOG("Exited successfully");
+	return EXIT_SUCCESS;
 }
