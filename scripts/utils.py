@@ -1,6 +1,7 @@
 import os
 import pathlib
 import shutil
+import textwrap
 
 
 def check_deps():
@@ -31,3 +32,18 @@ def get_project_dir() -> str:
             return dir.resolve()
 
     raise EnvironmentError("Can't detect project directory (.git missing)")
+
+
+def print_help():
+    print(textwrap.dedent("""
+        python build.py <subcommand> <options>
+        subcommands:
+            help
+            prepare
+                --host
+                --no-venv
+            build
+                --host
+                --generate
+            run
+    """))
