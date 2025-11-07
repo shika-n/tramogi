@@ -29,7 +29,7 @@ public:
 	}
 
 private:
-	GLFWwindow *window = nullptr;
+	GLFWwindow* window = nullptr;
 
 	vk::raii::Context context;
 	vk::raii::Instance instance = nullptr;
@@ -37,7 +37,7 @@ private:
 	vk::raii::Device device = nullptr;
 	vk::raii::Queue graphics_queue = nullptr;
 
-	std::vector<const char *> required_device_extensions = {
+	std::vector<char const*> required_device_extensions = {
 		vk::KHRSwapchainExtensionName,
 		vk::KHRSpirv14ExtensionName,
 		vk::KHRSynchronization2ExtensionName,
@@ -53,11 +53,7 @@ private:
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
 		window = glfwCreateWindow(
-			WIDTH,
-			HEIGHT,
-			"Project Sky-High",
-			nullptr,
-			nullptr
+			WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr
 		);
 	}
 
@@ -89,26 +85,21 @@ private:
 		};
 
 		uint32_t extension_count = 0;
-		auto extensions = glfwGetRequiredInstanceExtensions(
-			&extension_count
-		);
+		auto extensions = glfwGetRequiredInstanceExtensions(&extension_count);
 
-		auto available_extensions = context
-			.enumerateInstanceExtensionProperties();
+		auto available_extensions =
+			context.enumerateInstanceExtensionProperties();
 
 		for (uint32_t i = 0; i < extension_count; ++i) {
 			if (std::ranges::none_of(
 					available_extensions,
-					[extension = extensions[i]](
-						auto const &available_extension
-					) {
+					[extension =
+						 extensions[i]](auto const& available_extension) {
 						return std::strcmp(
-							available_extension.extensionName,
-							extension
-						) == 0;
+								   available_extension.extensionName, extension
+							   ) == 0;
 					}
-				)
-			) {
+				)) {
 				throw std::runtime_error(
 					"Required extension not supported: " +
 					std::string(extensions[i])
@@ -125,7 +116,7 @@ private:
 		instance = vk::raii::Instance(context, create_info);
 	}
 
-	uint32_t get_device_score(const vk::raii::PhysicalDevice &device) {
+	uint32_t get_device_score(vk::raii::PhysicalDevice const& device) {
 		uint32_t score = 0;
 		bool api_version_support = false;
 		bool is_discreet = false;
@@ -138,44 +129,39 @@ private:
 		}
 		if (property.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
 			score += 1000;
-		} else if (property.deviceType
-			== vk::PhysicalDeviceType::eIntegratedGpu
-		) {
+		} else if (property.deviceType ==
+				   vk::PhysicalDeviceType::eIntegratedGpu) {
 			score += 100;
 		}
 
 		auto queue_families = device.getQueueFamilyProperties();
-		const auto queue_family_iter = std::ranges::find_if(
-			queue_families,
-			[](vk::QueueFamilyProperties const &queue_family) {
-				return (queue_family.queueFlags & vk::QueueFlagBits::eGraphics)
-					!= static_cast<vk::QueueFlags>(0);
+		auto const queue_family_iter = std::ranges::find_if(
+			queue_families, [](vk::QueueFamilyProperties const& queue_family) {
+				return (queue_family.queueFlags &
+						vk::QueueFlagBits::eGraphics) !=
+					   static_cast<vk::QueueFlags>(0);
 			}
 		);
 		if (queue_family_iter == queue_families.end()) {
 			required_queue_available = false;
 		}
 
-		auto available_extensions = device
-			.enumerateDeviceExtensionProperties();
-		for (auto const &extension : required_device_extensions) {
+		auto available_extensions = device.enumerateDeviceExtensionProperties();
+		for (auto const& extension : required_device_extensions) {
 			auto iter = std::ranges::find_if(
 				available_extensions,
-				[extension](auto const &available_extension) {
+				[extension](auto const& available_extension) {
 					return std::strcmp(
-						available_extension.extensionName,
-						extension
+						available_extension.extensionName, extension
 					);
 				}
 			);
 			required_extensions_available = required_extensions_available &&
-				iter != available_extensions.end();
+											iter != available_extensions.end();
 		}
 
-		if (!api_version_support ||
-			!required_queue_available ||
-			!required_extensions_available
-		) {
+		if (!api_version_support || !required_queue_available ||
+			!required_extensions_available) {
 			score = 0;
 		}
 
@@ -183,8 +169,9 @@ private:
 		DLOG("> Vulkan API 1.3 support: {}", api_version_support);
 		DLOG("> Discreet GPU: {}", is_discreet);
 		DLOG("> Required Queues Available: {}", required_queue_available);
-		DLOG("> Required Extensions Available: {}",
-			required_extensions_available);
+		DLOG(
+			"> Required Extensions Available: {}", required_extensions_available
+		);
 		DLOG("> Score: {}", score);
 
 		return score;
@@ -192,11 +179,11 @@ private:
 
 	uint32_t get_queue_family(vk::raii::PhysicalDevice device) {
 		auto queue_families = device.getQueueFamilyProperties();
-		const auto queue_family_iter = std::ranges::find_if(
-			queue_families,
-			[](vk::QueueFamilyProperties const &queue_family) {
-				return (queue_family.queueFlags & vk::QueueFlagBits::eGraphics)
-					!= static_cast<vk::QueueFlags>(0);
+		auto const queue_family_iter = std::ranges::find_if(
+			queue_families, [](vk::QueueFamilyProperties const& queue_family) {
+				return (queue_family.queueFlags &
+						vk::QueueFlagBits::eGraphics) !=
+					   static_cast<vk::QueueFlags>(0);
 			}
 		);
 		return std::distance(queue_families.begin(), queue_family_iter);
@@ -209,7 +196,7 @@ private:
 		}
 
 		std::multimap<uint32_t, vk::raii::PhysicalDevice> device_scores;
-		for (const auto &device : devices) {
+		for (auto const& device : devices) {
 			uint32_t score = get_device_score(device);
 			device_scores.insert(std::make_pair(score, device));
 		}
@@ -239,20 +226,19 @@ private:
 		vk::StructureChain<
 			vk::PhysicalDeviceFeatures2,
 			vk::PhysicalDeviceVulkan13Features,
-			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
-		> feature_chain {
-			{},
-			{ .dynamicRendering = true },
-			{ .extendedDynamicState = true },
-		};
+			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
+			feature_chain {
+				{},
+				{.dynamicRendering = true},
+				{.extendedDynamicState = true},
+			};
 
 		vk::DeviceCreateInfo device_create_info {
 			.pNext = &feature_chain.get<vk::PhysicalDeviceFeatures2>(),
 			.queueCreateInfoCount = 1,
 			.pQueueCreateInfos = &device_queue_create_info,
-			.enabledExtensionCount = static_cast<uint32_t>(
-				required_device_extensions.size()
-			),
+			.enabledExtensionCount =
+				static_cast<uint32_t>(required_device_extensions.size()),
 			.ppEnabledExtensionNames = required_device_extensions.data(),
 		};
 
@@ -268,10 +254,10 @@ int main() {
 
 	try {
 		skyhigh.run();
-	} catch (const vk::SystemError &e) {
+	} catch (vk::SystemError const& e) {
 		std::println(stderr, "Vulkan Error: {}", e.what());
 		return EXIT_FAILURE;
-	} catch (const std::exception &e) {
+	} catch (std::exception const& e) {
 		std::println(stderr, "Error: {}", e.what());
 		return EXIT_FAILURE;
 	}
