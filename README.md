@@ -3,12 +3,17 @@
 A game engine project with goals I don't think I can achieve.
 
 # Building
-## Podman
+## Linux (Docker/Podman)
 ```bash
-./prepare-builder.sh && ./build.sh
+python build.py prepare && python build.py build --generate
+```
+
+## Windows
+```
+python build.py prepare --host && python build.py --host --generate
 ```
 
 # Running
 ```bash
-./build.sh run
+python build.py run
 ```
