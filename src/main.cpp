@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <print>
@@ -128,6 +129,7 @@ private:
 			api_version_support = true;
 		}
 		if (property.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
+			is_discreet = true;
 			score += 1000;
 		} else if (property.deviceType ==
 				   vk::PhysicalDeviceType::eIntegratedGpu) {
@@ -195,7 +197,9 @@ private:
 			throw std::runtime_error("No GPU that supports Vulkan found");
 		}
 
-		std::multimap<uint32_t, vk::raii::PhysicalDevice> device_scores;
+		std::
+			multimap<uint32_t, vk::raii::PhysicalDevice, std::greater<uint32_t>>
+				device_scores;
 		for (auto const& device : devices) {
 			uint32_t score = get_device_score(device);
 			device_scores.insert(std::make_pair(score, device));
