@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -17,6 +18,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
@@ -45,7 +47,7 @@ public:
 private:
 	GLFWwindow* window = nullptr;
 
-	vk::raii::Context context;
+	vk::raii::Context context {};
 	vk::raii::Instance instance = nullptr;
 	vk::raii::PhysicalDevice physical_device = nullptr;
 	vk::raii::Device device = nullptr;
@@ -53,8 +55,10 @@ private:
 	vk::raii::Queue present_queue = nullptr;
 	vk::raii::SurfaceKHR surface = nullptr;
 
-	vk::SurfaceFormatKHR swap_chain_surface_format {};
-	vk::Extent2D swap_chain_extent {};
+	vk::SurfaceFormatKHR swapchain_surface_format {};
+	vk::Extent2D swapchain_extent {};
+	vk::raii::SwapchainKHR swapchain = nullptr;
+	std::vector<vk::Image> swapchain_images;
 
 	DeviceSuitableness device_suitableness {};
 
@@ -87,7 +91,7 @@ private:
 		create_surface();
 		pick_physical_device();
 		create_logical_device();
-		create_swap_chain();
+		create_swapchain();
 	}
 
 	void main_loop() {
@@ -117,7 +121,9 @@ private:
 		auto available_extensions =
 			context.enumerateInstanceExtensionProperties();
 
+		DLOG("Instance Extension:");
 		for (uint32_t i = 0; i < extension_count; ++i) {
+			DLOG("  - {}", extensions[i]);
 			if (std::ranges::none_of(
 					available_extensions,
 					[extension =
@@ -209,20 +215,20 @@ private:
 		}
 
 		DLOG("Device: {}", std::string(property.deviceName));
-		DLOG("> Vulkan API v1.3 Support: {}", is_api_supported);
-		DLOG("> Extensions:");
+		DLOG("  Vulkan API v1.3 Support: {}", is_api_supported);
+		DLOG("  Extensions:");
 		for (auto entry : extension_support_map) {
-			DLOG(">   - {}: {}", entry.first, entry.second ? "Yes" : "No");
+			DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
 		}
-		DLOG("> Queue:");
+		DLOG("  Queue:");
 		DLOG(
-			">   Graphics Queue Index: {}",
+			"    Graphics Queue Index: {}",
 			graphics_queue_index == queue_families.size()
 				? "Not Found"
 				: std::to_string(graphics_queue_index)
 		);
 		DLOG(
-			">   Present Queue Index: {}",
+			"    Present Queue Index: {}",
 			present_queue_index == queue_families.size()
 				? "Not Found"
 				: std::to_string(present_queue_index)
@@ -336,7 +342,7 @@ private:
 			vk::raii::Queue(device, device_suitableness.present_queue_index, 0);
 	}
 
-	void create_swap_chain() {
+	void create_swapchain() {
 		auto surface_capabilities =
 			physical_device.getSurfaceCapabilitiesKHR(surface);
 		std::vector<vk::SurfaceFormatKHR> available_formats =
@@ -344,15 +350,59 @@ private:
 		std::vector<vk::PresentModeKHR> available_present_mode =
 			physical_device.getSurfacePresentModesKHR(surface);
 
-		swap_chain_surface_format =
+		swapchain_surface_format =
 			choose_swap_surface_format(available_formats);
-		swap_chain_extent = choose_swap_extent(surface_capabilities);
+		swapchain_extent = choose_swap_extent(surface_capabilities);
 		auto min_image_count = std::max(3u, surface_capabilities.minImageCount);
 
 		if (surface_capabilities.maxImageCount > 0 &&
 			min_image_count > surface_capabilities.minImageCount) {
 			min_image_count = surface_capabilities.maxImageCount;
 		}
+
+		uint32_t image_count = surface_capabilities.minImageCount + 1;
+		if (surface_capabilities.maxImageCount > 0 &&
+			image_count > surface_capabilities.maxImageCount) {
+			image_count = surface_capabilities.maxImageCount;
+		}
+
+		vk::SwapchainCreateInfoKHR swapchain_create_info {
+			.flags = vk::SwapchainCreateFlagsKHR(),
+			.surface = surface,
+			.minImageCount = min_image_count,
+			.imageFormat = swapchain_surface_format.format,
+			.imageColorSpace = swapchain_surface_format.colorSpace,
+			.imageExtent = swapchain_extent,
+			.imageArrayLayers = 1,
+			.imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
+			.imageSharingMode = vk::SharingMode::eExclusive,
+			.preTransform = surface_capabilities.currentTransform,
+			.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
+			.presentMode = choose_present_mode(available_present_mode),
+			.clipped = true,
+			.oldSwapchain = nullptr,
+		};
+
+		if (device_suitableness.graphics_queue_index !=
+			device_suitableness.present_queue_index) {
+			std::array<uint32_t, 2> indices {
+				device_suitableness.graphics_queue_index,
+				device_suitableness.present_queue_index
+			};
+
+			swapchain_create_info.imageSharingMode =
+				vk::SharingMode::eConcurrent;
+			swapchain_create_info.queueFamilyIndexCount = 2;
+			swapchain_create_info.pQueueFamilyIndices = indices.data();
+		} else {
+			swapchain_create_info.imageSharingMode =
+				vk::SharingMode::eExclusive;
+			swapchain_create_info.queueFamilyIndexCount = 0;
+			swapchain_create_info.pQueueFamilyIndices = nullptr;
+		}
+
+		swapchain = vk::raii::SwapchainKHR(device, swapchain_create_info);
+		swapchain_images = swapchain.getImages();
 	}
 
 	vk::SurfaceFormatKHR choose_swap_surface_format(
