@@ -63,6 +63,9 @@ private:
 	std::vector<vk::Image> swapchain_images;
 	std::vector<vk::raii::ImageView> swapchain_image_views;
 
+	vk::raii::PipelineLayout pipeline_layout = nullptr;
+	vk::raii::Pipeline graphics_pipeline = nullptr;
+
 	DeviceSuitableness device_suitableness {};
 
 	std::vector<const char *> required_device_extensions = {
@@ -471,15 +474,6 @@ private:
 			.topology = vk::PrimitiveTopology::eTriangleList
 		};
 
-		vk::Viewport viewport {
-			.x = 0,
-			.y = 0,
-			.width = static_cast<float>(swapchain_extent.width),
-			.height = static_cast<float>(swapchain_extent.height),
-			.minDepth = 0,
-			.maxDepth = 1,
-		};
-
 		vk::PipelineViewportStateCreateInfo viewport_state_info {
 			.viewportCount = 1,
 			.scissorCount = 1,
@@ -509,14 +503,13 @@ private:
 			.attachmentCount = 1,
 			.pAttachments = &color_blend_attachment,
 		};
-		vk::raii::PipelineLayout pipeline_layout = nullptr;
 
 		vk::PipelineLayoutCreateInfo pipeline_layout_info {
 			.setLayoutCount = 0,
 			.pushConstantRangeCount = 0,
 		};
 
-		vk::raii::PipelineLayout(device, pipeline_layout_info);
+		pipeline_layout = vk::raii::PipelineLayout(device, pipeline_layout_info);
 
 		vk::PipelineRenderingCreateInfo pipeline_rendering_info {
 			.colorAttachmentCount = 1,
@@ -524,6 +517,7 @@ private:
 		};
 
 		vk::GraphicsPipelineCreateInfo graphics_pipeline_info {
+			.pNext = &pipeline_rendering_info,
 			.stageCount = 2,
 			.pStages = shader_stages.data(),
 			.pVertexInputState = &vertex_input_info,
@@ -536,6 +530,8 @@ private:
 			.layout = pipeline_layout,
 			.renderPass = nullptr,
 		};
+
+		graphics_pipeline = vk::raii::Pipeline(device, nullptr, graphics_pipeline_info);
 	}
 
 	[[nodiscard]] vk::raii::ShaderModule create_shader_module(const std::vector<char> &code) const {
