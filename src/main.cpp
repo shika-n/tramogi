@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -125,9 +126,43 @@ private:
 	}
 
 	void main_loop() {
+		auto last_time = std::chrono::high_resolution_clock().now();
+		uint32_t frames = 0;
+		double timer = 0;
+		bool f3_pressed = false;
+		bool print_fps = false;
+
 		while (!glfwWindowShouldClose(window)) {
+			auto now = std::chrono::high_resolution_clock().now();
+			double delta =
+				std::chrono::duration_cast<std::chrono::nanoseconds>(now - last_time).count() /
+				1000000000.0;
+
 			glfwPollEvents();
+			if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS) {
+				if (!f3_pressed) {
+					print_fps = !print_fps;
+					DLOG("Print FPS: {}", print_fps);
+					f3_pressed = true;
+				}
+			} else {
+				f3_pressed = false;
+			}
+
 			draw_frame();
+
+			++frames;
+			timer += delta;
+
+			while (timer >= 1) {
+				if (print_fps) {
+					DLOG("{} FPS ({:.2f}ms)", frames, 1000.0 / frames);
+				}
+				frames = 0;
+				timer -= 1;
+			}
+
+			last_time = now;
 		}
 
 		device.waitIdle();
