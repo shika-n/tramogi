@@ -66,6 +66,13 @@ private:
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
 	vk::raii::Pipeline graphics_pipeline = nullptr;
 
+	vk::raii::CommandPool command_pool = nullptr;
+	vk::raii::CommandBuffer command_buffer = nullptr;
+
+	vk::raii::Semaphore present_complete_semaphore = nullptr;
+	vk::raii::Semaphore render_finished_semaphore = nullptr;
+	vk::raii::Fence draw_fence = nullptr;
+
 	DeviceSuitableness device_suitableness {};
 
 	std::vector<const char *> required_device_extensions = {
@@ -94,12 +101,18 @@ private:
 		create_swapchain();
 		create_image_views();
 		create_graphics_pipeline();
+		create_command_pool();
+		create_command_buffer();
+		create_sync_objects();
 	}
 
 	void main_loop() {
 		while (!glfwWindowShouldClose(window)) {
 			glfwPollEvents();
+			draw_frame();
 		}
+
+		device.waitIdle();
 	}
 
 	void cleanup() {
@@ -541,6 +554,165 @@ private:
 		};
 
 		return vk::raii::ShaderModule(device, shader_module_create_info);
+	}
+
+	void create_command_pool() {
+		vk::CommandPoolCreateInfo pool_info {
+			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+			.queueFamilyIndex = device_suitableness.graphics_queue_index,
+		};
+
+		command_pool = vk::raii::CommandPool(device, pool_info);
+	}
+
+	void create_command_buffer() {
+		vk::CommandBufferAllocateInfo allocateInfo {
+			.commandPool = command_pool,
+			.level = vk::CommandBufferLevel::ePrimary,
+			.commandBufferCount = 1,
+		};
+
+		command_buffer = std::move(vk::raii::CommandBuffers(device, allocateInfo).front());
+	}
+
+	void transition_image_layout(
+		uint32_t image_index,
+		vk::ImageLayout old_layout,
+		vk::ImageLayout new_layout,
+		vk::AccessFlags2 src_access_mask,
+		vk::AccessFlags2 dst_access_mask,
+		vk::PipelineStageFlags2 src_stage_mask,
+		vk::PipelineStageFlags2 dst_stage_mask
+	) {
+		vk::ImageMemoryBarrier2 barrier = {
+			.srcStageMask = src_stage_mask,
+			.srcAccessMask = src_access_mask,
+			.dstStageMask = dst_stage_mask,
+			.dstAccessMask = dst_access_mask,
+			.oldLayout = old_layout,
+			.newLayout = new_layout,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = swapchain_images[image_index],
+			.subresourceRange = {
+				.aspectMask = vk::ImageAspectFlagBits::eColor,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			}
+		};
+
+		vk::DependencyInfo dependency_info {
+			.dependencyFlags = {},
+			.imageMemoryBarrierCount = 1,
+			.pImageMemoryBarriers = &barrier,
+		};
+
+		command_buffer.pipelineBarrier2(dependency_info);
+	}
+
+	void record_command_buffer(uint32_t image_index) {
+		command_buffer.begin({});
+
+		transition_image_layout(
+			image_index,
+			vk::ImageLayout::eUndefined,
+			vk::ImageLayout::eColorAttachmentOptimal,
+			{},
+			vk::AccessFlagBits2::eColorAttachmentWrite,
+			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+			vk::PipelineStageFlagBits2::eColorAttachmentOutput
+		);
+
+		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+		vk::RenderingAttachmentInfo attachment_info {
+			.imageView = swapchain_image_views[image_index],
+			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+			.loadOp = vk::AttachmentLoadOp::eClear,
+			.storeOp = vk::AttachmentStoreOp::eStore,
+			.clearValue = clear_color,
+		};
+
+		vk::RenderingInfo rendering_info {
+			.renderArea =
+				{
+					.offset = {0, 0},
+					.extent = swapchain_extent,
+				},
+			.layerCount = 1,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &attachment_info,
+		};
+
+		command_buffer.beginRendering(rendering_info);
+
+		command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphics_pipeline);
+		command_buffer.setViewport(
+			0,
+			vk::Viewport(0.0f, 0.0f, swapchain_extent.width, swapchain_extent.height, 0.0f, 1.0f)
+		);
+		command_buffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent));
+
+		command_buffer.draw(3, 1, 0, 0);
+
+		command_buffer.endRendering();
+
+		transition_image_layout(
+			image_index,
+			vk::ImageLayout::eColorAttachmentOptimal,
+			vk::ImageLayout::ePresentSrcKHR,
+			vk::AccessFlagBits2::eColorAttachmentWrite,
+			{},
+			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+			vk::PipelineStageFlagBits2::eBottomOfPipe
+		);
+
+		command_buffer.end();
+	}
+
+	void create_sync_objects() {
+		present_complete_semaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+		render_finished_semaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+		draw_fence = vk::raii::Fence(device, {.flags = vk::FenceCreateFlagBits::eSignaled});
+	}
+
+	void draw_frame() {
+		device.waitIdle();
+
+		auto [result, image_index] =
+			swapchain.acquireNextImage(UINT64_MAX, *present_complete_semaphore, nullptr);
+
+		record_command_buffer(image_index);
+		device.resetFences(*draw_fence);
+
+		vk::PipelineStageFlags wait_destination_stage_mask(
+			vk::PipelineStageFlagBits::eColorAttachmentOutput
+		);
+		const vk::SubmitInfo submit_info {
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &*present_complete_semaphore,
+			.pWaitDstStageMask = &wait_destination_stage_mask,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &*command_buffer,
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &*render_finished_semaphore,
+		};
+
+		graphics_queue.submit(submit_info, *draw_fence);
+
+		while (vk::Result::eTimeout == device.waitForFences(*draw_fence, vk::True, UINT64_MAX))
+			;
+
+		vk::PresentInfoKHR present_info {
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &*render_finished_semaphore,
+			.swapchainCount = 1,
+			.pSwapchains = &*swapchain,
+			.pImageIndices = &image_index,
+		};
+
+		result = present_queue.presentKHR(present_info);
 	}
 
 	static std::vector<char> read_shader_file(const char *filepath) {
