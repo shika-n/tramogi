@@ -1,4 +1,4 @@
-FROM fedora:42
+FROM fedora:43
 
 ARG slang_base_url=https://github.com/shader-slang/slang/releases/download/
 ARG slang_url_path=v2025.22.1/slang-2025.22.1-linux-x86_64-glibc-2.27.tar.gz
