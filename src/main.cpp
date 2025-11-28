@@ -8,8 +8,6 @@
 #include <format>
 #include <fstream>
 #include <functional>
-#include <glm/ext/vector_float2.hpp>
-#include <glm/ext/vector_float3.hpp>
 #include <ios>
 #include <limits>
 #include <map>
@@ -21,7 +19,6 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -30,6 +27,15 @@
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
 #include <vulkan/vulkan_to_string.hpp>
+
+#include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_transform.hpp>
+#include <glm/ext/vector_float2.hpp>
+#include <glm/ext/vector_float3.hpp>
+#include <glm/fwd.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/trigonometric.hpp>
 
 #include "macros.h"
 
@@ -81,6 +87,12 @@ struct Vertex {
 	}
 };
 
+struct UniformBufferObject {
+	glm::mat4 projection;
+	glm::mat4 view;
+	glm::mat4 model;
+};
+
 class ProjectSkyHigh {
 public:
 	void run() {
@@ -107,6 +119,7 @@ private:
 	std::vector<vk::Image> swapchain_images;
 	std::vector<vk::raii::ImageView> swapchain_image_views;
 
+	vk::raii::DescriptorSetLayout descriptor_set_layout = nullptr;
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
 	vk::raii::Pipeline graphics_pipeline = nullptr;
 
@@ -117,6 +130,12 @@ private:
 	vk::raii::DeviceMemory vertex_buffer_memory = nullptr;
 	vk::raii::Buffer index_buffer = nullptr;
 	vk::raii::DeviceMemory index_buffer_memory = nullptr;
+	std::vector<vk::raii::Buffer> uniform_buffers;
+	std::vector<vk::raii::DeviceMemory> uniform_buffers_memory;
+	std::vector<void *> uniform_buffers_mapped;
+
+	vk::raii::DescriptorPool descriptor_pool = nullptr;
+	std::vector<vk::raii::DescriptorSet> descriptor_sets;
 
 	std::vector<vk::raii::Semaphore> present_complete_semaphores;
 	std::vector<vk::raii::Semaphore> render_finished_semaphores;
@@ -166,10 +185,14 @@ private:
 		create_logical_device();
 		create_swapchain();
 		create_image_views();
+		create_descriptor_layout();
 		create_graphics_pipeline();
 		create_command_pool();
 		create_vertex_buffer();
 		create_index_buffer();
+		create_uniform_buffers();
+		create_descriptor_pool();
+		create_descriptor_sets();
 		create_command_buffers();
 		create_sync_objects();
 	}
@@ -611,6 +634,23 @@ private:
 		}
 	}
 
+	void create_descriptor_layout() {
+		vk::DescriptorSetLayoutBinding ubo_layout_binding {
+			.binding = 0,
+			.descriptorType = vk::DescriptorType::eUniformBuffer,
+			.descriptorCount = 1,
+			.stageFlags = vk::ShaderStageFlagBits::eVertex,
+			.pImmutableSamplers = nullptr,
+		};
+
+		vk::DescriptorSetLayoutCreateInfo layout_info {
+			.bindingCount = 1,
+			.pBindings = &ubo_layout_binding,
+		};
+
+		descriptor_set_layout = vk::raii::DescriptorSetLayout(device, layout_info);
+	}
+
 	void create_graphics_pipeline() {
 		auto shader_code = read_shader_file("shaders/slang.spv");
 		DLOG("Shader size: {}", shader_code.size() * sizeof(char));
@@ -663,7 +703,7 @@ private:
 			.rasterizerDiscardEnable = vk::False,
 			.polygonMode = vk::PolygonMode::eFill,
 			.cullMode = vk::CullModeFlagBits::eBack,
-			.frontFace = vk::FrontFace::eClockwise,
+			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False,
 			.depthBiasSlopeFactor = 1,
 			.lineWidth = 1,
@@ -685,7 +725,8 @@ private:
 		};
 
 		vk::PipelineLayoutCreateInfo pipeline_layout_info {
-			.setLayoutCount = 0,
+			.setLayoutCount = 1,
+			.pSetLayouts = &*descriptor_set_layout,
 			.pushConstantRangeCount = 0,
 		};
 
@@ -825,6 +866,76 @@ private:
 		copy_buffer(staging_buffer, index_buffer, buffer_size);
 	}
 
+	void create_uniform_buffers() {
+		uniform_buffers.clear();
+		uniform_buffers_memory.clear();
+		uniform_buffers_mapped.clear();
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
+			vk::raii::Buffer buffer({});
+			vk::raii::DeviceMemory buffer_memory({});
+			create_buffer(
+				buffer_size,
+				vk::BufferUsageFlagBits::eUniformBuffer,
+				vk::MemoryPropertyFlagBits::eHostVisible |
+					vk::MemoryPropertyFlagBits::eHostCoherent,
+				buffer,
+				buffer_memory
+			);
+
+			uniform_buffers.emplace_back(std::move(buffer));
+			uniform_buffers_mapped.emplace_back(buffer_memory.mapMemory(0, buffer_size));
+			uniform_buffers_memory.emplace_back(std::move(buffer_memory));
+		}
+	}
+
+	void create_descriptor_pool() {
+		vk::DescriptorPoolSize pool_size {
+			.type = vk::DescriptorType::eUniformBuffer,
+			.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+		};
+
+		vk::DescriptorPoolCreateInfo pool_info {
+			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+			.maxSets = MAX_FRAMES_IN_FLIGHT,
+			.poolSizeCount = 1,
+			.pPoolSizes = &pool_size,
+		};
+
+		descriptor_pool = vk::raii::DescriptorPool(device, pool_info);
+	}
+
+	void create_descriptor_sets() {
+		descriptor_sets.clear();
+
+		std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, *descriptor_set_layout);
+		vk::DescriptorSetAllocateInfo allocate_info {
+			.descriptorPool = descriptor_pool,
+			.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+			.pSetLayouts = layouts.data(),
+		};
+
+		descriptor_sets = device.allocateDescriptorSets(allocate_info);
+
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			vk::DescriptorBufferInfo buffer_info {
+				.buffer = uniform_buffers[i],
+				.offset = 0,
+				.range = sizeof(UniformBufferObject),
+			};
+			vk::WriteDescriptorSet descriptor_write {
+				.dstSet = descriptor_sets[i],
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = vk::DescriptorType::eUniformBuffer,
+				.pBufferInfo = &buffer_info,
+			};
+			device.updateDescriptorSets(descriptor_write, {});
+		}
+	}
+
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
 		vk::CommandBufferAllocateInfo allocate_info {
 			.commandPool = command_pool,
@@ -949,6 +1060,14 @@ private:
 		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
 		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint16);
 
+		command_buffers[current_frame].bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			pipeline_layout,
+			0,
+			*descriptor_sets[current_frame],
+			nullptr
+		);
+
 		// command_buffers[current_frame].draw(3, 1, 1, 0);
 		command_buffers[current_frame].drawIndexed(indices.size(), 1, 0, 0, 0);
 		command_buffers[current_frame].endRendering();
@@ -1007,6 +1126,8 @@ private:
 			record_command_buffer(image_index);
 			device.resetFences(*draw_fences[current_frame]);
 
+			update_uniform_buffer(current_frame);
+
 			vk::PipelineStageFlags wait_destination_stage_mask(
 				vk::PipelineStageFlagBits::eColorAttachmentOutput
 			);
@@ -1050,6 +1171,35 @@ private:
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
+	void update_uniform_buffer(uint32_t current_image) {
+		static auto start_time = std::chrono::high_resolution_clock::now();
+
+		auto current_time = std::chrono::high_resolution_clock::now();
+		float time = std::chrono::duration<float, std::chrono::seconds::period>(
+						 current_time - start_time
+		)
+						 .count();
+
+		UniformBufferObject ubo;
+		ubo.model =
+			glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.view = glm::lookAt(
+			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		ubo.projection = glm::perspective(
+			glm::radians(45.0f),
+			static_cast<float>(swapchain_extent.width) /
+				static_cast<float>(swapchain_extent.height),
+			0.1f,
+			10.0f
+		);
+		ubo.projection[1][1] *= -1;
+
+		memcpy(uniform_buffers_mapped[current_image], &ubo, sizeof(ubo));
+	}
+
 	void cleanup_swapchain() {
 		swapchain_images.clear();
 		swapchain = nullptr;
@@ -1073,6 +1223,8 @@ private:
 
 		create_swapchain();
 		create_image_views();
+
+		DLOG("Resized to: {}x{}", width, height);
 	}
 
 	static std::vector<char> read_shader_file(const char *filepath) {
@@ -1090,10 +1242,9 @@ private:
 		return buffer;
 	}
 
-	static void framebuffer_resize_callback(GLFWwindow *window, int width, int height) {
+	static void framebuffer_resize_callback(GLFWwindow *window, int, int) {
 		auto app = reinterpret_cast<ProjectSkyHigh *>(glfwGetWindowUserPointer(window));
 		app->is_framebuffer_resized = true;
-		DLOG("Resized to: {}x{}", width, height);
 	}
 
 	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
