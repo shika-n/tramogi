@@ -29,6 +29,7 @@
 #include <vulkan/vulkan_to_string.hpp>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/vector_float2.hpp>
@@ -36,15 +37,21 @@
 #include <glm/fwd.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 #include "logging.h"
 
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
+const std::string MODEL_PATH = "models/viking_room.obj";
+const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -69,6 +76,10 @@ struct Vertex {
 	glm::vec3 position;
 	glm::vec3 color;
 	glm::vec2 tex_coord;
+
+	bool operator==(const Vertex &other) const {
+		return position == other.position && color == other.color && tex_coord == other.tex_coord;
+	}
 
 	static vk::VertexInputBindingDescription get_binding_description() {
 		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
@@ -97,6 +108,16 @@ struct Vertex {
 		};
 	}
 };
+
+namespace std {
+template <> struct hash<Vertex> {
+	size_t operator()(const Vertex &vertex) const {
+		return ((hash<glm::vec3>()(vertex.position) ^ (hash<glm::vec3>()(vertex.color) << 1)) >>
+				1) ^
+			   (hash<glm::vec2>()(vertex.tex_coord) << 1);
+	}
+};
+} // namespace std
 
 struct UniformBufferObject {
 	glm::mat4 projection;
@@ -176,19 +197,8 @@ private:
 		vk::KHRCreateRenderpass2ExtensionName,
 	};
 
-	const std::vector<Vertex> vertices = {
-		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-
-		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-	};
-
-	const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4};
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 
 	void init_window() {
 		if (!glfwInit()) {
@@ -217,6 +227,7 @@ private:
 		create_texture_image();
 		create_texture_image_view();
 		create_texture_sampler();
+		load_model();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
@@ -898,7 +909,7 @@ private:
 		int texture_height = 0;
 		int texture_channels = 0;
 		stbi_uc *pixels = stbi_load(
-			"textures/texture.jpg",
+			TEXTURE_PATH.c_str(),
 			&texture_width,
 			&texture_height,
 			&texture_channels,
@@ -1079,6 +1090,48 @@ private:
 		buffer_memory = vk::raii::DeviceMemory(device, memory_allocate_info);
 
 		buffer.bindMemory(buffer_memory, 0);
+	}
+
+	void load_model() {
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		std::unordered_map<Vertex, uint32_t> unique_vertices;
+		std::string warn;
+		std::string err;
+
+		if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+			DLOG("{}", warn + err);
+		}
+
+		for (auto shape : shapes) {
+			for (const auto &index : shape.mesh.indices) {
+				Vertex vertex {
+					.position =
+						{
+							attrib.vertices[3 * index.vertex_index + 0],
+							attrib.vertices[3 * index.vertex_index + 1],
+							attrib.vertices[3 * index.vertex_index + 2],
+						},
+					.color = {1.0f, 1.0f, 1.0f},
+					.tex_coord = {
+						attrib.texcoords[2 * index.texcoord_index + 0],
+						1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
+					},
+				};
+
+				if (unique_vertices.count(vertex) == 0) {
+					unique_vertices[vertex] = static_cast<glm::uint>(vertices.size());
+					vertices.push_back(vertex);
+				}
+
+				indices.push_back(unique_vertices[vertex]);
+			}
+		}
+
+		DLOG("Loading model done!");
+		DLOG("  Vertices: {}", vertices.size());
+		DLOG("  Indices: {}", indices.size());
 	}
 
 	void create_vertex_buffer() {
@@ -1424,7 +1477,7 @@ private:
 		);
 
 		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
-		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint16);
+		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint32);
 
 		command_buffers[current_frame].bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,

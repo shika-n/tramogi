@@ -18,6 +18,7 @@ target_link_libraries(
 		glfw
 		glm::glm
 		stb::stb
+		tinyobjloader::tinyobjloader
 		Vulkan::Headers
 
 		${PROJECT_NAME}-platform

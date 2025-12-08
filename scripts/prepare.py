@@ -78,7 +78,7 @@ def install_project_deps(venv_bin_path):
     conan_exec = os.path.join(venv_bin_path, "conan")
     build_args = []
 
-    build_args.append("--build=missing:glfw/{}".format(conf.GLFW_VERSION))
+    build_args.append("--build=missing")
 
     res = subprocess.run([
         conan_exec,
