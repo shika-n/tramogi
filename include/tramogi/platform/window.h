@@ -4,7 +4,7 @@
 #include <expected>
 #include <vector>
 
-class GLFWwindow;
+struct GLFWwindow;
 
 typedef struct VkSurfaceKHR_T *VkSurfaceKHR;
 typedef struct VkInstance_T *VkInstance;

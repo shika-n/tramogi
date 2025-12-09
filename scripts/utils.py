@@ -5,9 +5,9 @@ import subprocess
 import textwrap
 
 
-def check_deps():
-    if shutil.which("g++") is None:
-        raise EnvironmentError("g++ required")
+def check_tool_dependencies():
+    if shutil.which("g++") is None and shutil.which("clang++") is None:
+        raise EnvironmentError("g++ or clang++ required")
     if shutil.which("cmake") is None:
         raise EnvironmentError("CMake required")
     if shutil.which("ninja") is None:
@@ -84,10 +84,8 @@ def print_help():
         subcommands:
             help
             prepare
-                --host
-                --no-venv
+                --container
             build
-                --host
-                --generate
+                --container
             run
     """))

@@ -1,3 +1,4 @@
 CompileFlags:
-  CompilationDatabase: build/Debug
+  CompilationDatabase: build
+  Add: [ -isystem, "../external/stb" ] # Suppress errors from stb
   Remove: [ -fdeps-format=p1689r5, -fmodule* ]

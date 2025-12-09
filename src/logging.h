@@ -10,5 +10,5 @@ inline void _keep_print_include() {
 	}
 }
 #else
-#define DLOG(x)
+#define DLOG(x, ...)
 #endif // DEBUG

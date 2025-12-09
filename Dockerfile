@@ -22,6 +22,7 @@ RUN sudo dnf install -y \
 	libXdamage-devel \
 	libXdmcp-devel \
 	libXinerama-devel \
+	libxkbcommon-devel\
 	libxkbfile-devel \
 	libXrandr-devel \
 	libXres-devel \
@@ -29,6 +30,7 @@ RUN sudo dnf install -y \
 	libXtst-devel \
 	libXv-devel \
 	libXxf86vm-devel \
+	wayland-devel \
 	xcb-util-cursor-devel \
 	xcb-util-devel \
 	xcb-util-image-devel \

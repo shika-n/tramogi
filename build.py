@@ -1,86 +1,59 @@
 #!/usr/bin/env python
 
 import os
-import platform
 import subprocess
 import sys
 
 from scripts import (
-    build as bld,
-    container_flow as cf,
-    prepare as prep,
-    utils,
+    builder as b,
+    utils
 )
 
 
-def prepare(args: list, project_dir: str):
-    os_name = platform.system()
-    build_on_host = False
-    use_venv = True
-
+def prepare(args: list):
+    print("=============== GENERATING ===============", flush=True)
+    builder = b.HostBuilder()
     for arg in args:
         match arg:
-            case "--host":
-                build_on_host = True
-            case "--no-venv":
-                use_venv = False
-            case _:
-                raise RuntimeError(
-                    "Unknown option '{}' for prepare subcommand".format(arg)
-                )
-
-    if build_on_host:
-        utils.check_deps()
-
-        venv_bin_path = ""
-        if use_venv:
-            venv_bin_path = prep.prepare_venv(os_name, project_dir)
-
-        prep.install_conan(venv_bin_path)
-        prep.prepare_conan(venv_bin_path)
-        prep.install_project_deps(venv_bin_path)
-    else:
-        container_engine = utils.get_container_engine()
-        cf.prepare_builder(container_engine, project_dir)
-
-
-def sub_build(args: list, project_dir: str):
-    build_on_host = False
-    should_generate_cmake = False
-    for arg in args:
-        match arg:
-            case "--generate":
-                should_generate_cmake = True
-            case "--host":
-                build_on_host = True
+            case "--container":
+                builder = b.ContainerBuilder()
             case _:
                 raise RuntimeError(
                     "Unknown option '{}' for build subcommand".format(arg)
                 )
 
-    if build_on_host:
-        if should_generate_cmake:
-            bld.generate_cmake()
-
-        bld.build()
-    else:
-        container_engine = utils.get_container_engine()
-        cf.build(container_engine, project_dir, args)
+    builder.generate_build_files()
 
 
-def run(project_dir: str):
+def build(args: list):
+    print("================ BUILDING ===============", flush=True)
+    builder = b.HostBuilder()
+    for arg in args:
+        match arg:
+            case "--container":
+                builder = b.ContainerBuilder()
+            case _:
+                raise RuntimeError(
+                    "Unknown option '{}' for build subcommand".format(arg)
+                )
+
+    builder.build()
+
+
+def run():
     print("================ RUNNING ================", flush=True)
+    project_dir = utils.get_project_dir()
     res = subprocess.run([
         os.path.join(
             project_dir,
             "build",
-            "Debug",
             "src",
+            "Debug",
             "Tramogi",
         ),
     ])
-
     if res.returncode != 0:
+        print(res.stderr)
         raise RuntimeError("Application runtime error")
 
 
@@ -92,18 +65,18 @@ def main():
             " `build.py help` to see available commands"
         )
 
-    project_dir = utils.get_project_dir()
-
     subcommand = args.pop(0)
     match subcommand:
         case "help":
             utils.print_help()
         case "prepare":
-            prepare(args, project_dir)
+            utils.check_tool_dependencies()
+            prepare(args)
         case "build":
-            sub_build(args, project_dir)
+            utils.check_tool_dependencies()
+            build(args)
         case "run":
-            run(project_dir)
+            run()
         case _:
             raise RuntimeError("Unknown subcommand '{}'".format(subcommand))
 

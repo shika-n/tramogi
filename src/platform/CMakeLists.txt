@@ -1,5 +1,6 @@
 add_library(
 	${PROJECT_NAME}-platform
+	SHARED
 	glfw_window.cpp
 )
 
