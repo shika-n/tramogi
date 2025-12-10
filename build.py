@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import time
 
 from scripts import (
     builder as b,
@@ -37,7 +38,10 @@ def build(args: list):
                     "Unknown option '{}' for build subcommand".format(arg)
                 )
 
+    start_time = time.monotonic()
     builder.build()
+    end_time = time.monotonic()
+    print("Build time: {:.2f}s".format(end_time - start_time), flush=True)
 
 
 def run():
