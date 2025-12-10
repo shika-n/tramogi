@@ -1,3 +1,4 @@
+add_subdirectory(core)
 add_subdirectory(platform)
 
 add_executable(
@@ -17,9 +18,11 @@ target_link_libraries(
 		stdc++exp
 		glfw
 		glm::glm
-		tinyobjloader
 		Vulkan::Headers
 
+		tinyobjloader
+
+		${PROJECT_NAME}-core-file
 		${PROJECT_NAME}-platform
 )
 

@@ -2,7 +2,6 @@
 #include <array>
 #include <cassert>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -42,9 +41,8 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
+#include "tramogi/core/image_data.h"
+// #include "tramogi/core/obj_loader.h"
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
@@ -911,28 +909,16 @@ private:
 	}
 
 	void create_texture_image() {
-		int texture_width = 0;
-		int texture_height = 0;
-		int texture_channels = 0;
-		stbi_uc *pixels = stbi_load(
-			TEXTURE_PATH.c_str(),
-			&texture_width,
-			&texture_height,
-			&texture_channels,
-			STBI_rgb_alpha
-		);
-
-		mip_levels = static_cast<uint32_t>(
-						 std::floor(std::log2(std::max(texture_width, texture_height)))
-					 ) +
-					 1;
-
-		vk::DeviceSize image_size = texture_width * texture_height * 4;
-
-		if (!pixels) {
+		tramogi::core::ImageData image_data;
+		if (!image_data.load_from_file(TEXTURE_PATH.c_str())) {
 			// TODO: handle missing texture without throwing
 			throw std::runtime_error("Failed to load texture image");
 		}
+
+		int texture_width = image_data.get_width();
+		int texture_height = image_data.get_height();
+		mip_levels = image_data.get_mip_levels();
+		vk::DeviceSize image_size = image_data.get_size();
 
 		vk::raii::Buffer staging_buffer({});
 		vk::raii::DeviceMemory staging_memory({});
@@ -945,12 +931,8 @@ private:
 		);
 
 		void *data = staging_memory.mapMemory(0, image_size);
-		memcpy(data, pixels, image_size);
+		memcpy(data, image_data.get_data(), image_size);
 		staging_memory.unmapMemory();
-		data = nullptr;
-
-		stbi_image_free(pixels);
-		pixels = nullptr;
 
 		create_image(
 			texture_width,
@@ -1234,12 +1216,16 @@ private:
 	}
 
 	void load_model() {
+		// tramogi::core::ObjLoader obj_loader;
+
 		tinyobj::attrib_t attrib;
 		std::vector<tinyobj::shape_t> shapes;
 		std::vector<tinyobj::material_t> materials;
 		std::unordered_map<Vertex, uint32_t> unique_vertices;
 		std::string warn;
 		std::string err;
+
+		// obj_loader.load_from_file(MODEL_PATH.c_str());
 
 		if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
 			DLOG("{}", warn + err);

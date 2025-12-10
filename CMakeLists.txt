@@ -14,7 +14,6 @@ add_subdirectory(external/glm)
 add_subdirectory(external/Vulkan-Headers)
 add_subdirectory(external/tinyobjloader)
 
-include_directories(external/stb)
 include_directories(include)
 
 add_compile_options(
