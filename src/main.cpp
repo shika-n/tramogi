@@ -393,8 +393,8 @@ private:
 
 	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
 		bool is_suitable = true;
-		bool is_api_supported = true;
-		bool anisotropy_support = true;
+		[[maybe_unused]] bool is_api_supported = true;
+		[[maybe_unused]] bool anisotropy_support = true;
 		std::map<const char *, bool> extension_support_map;
 
 		auto property = device.getProperties();
@@ -452,7 +452,7 @@ private:
 		DLOG("Device: {}", std::string(property.deviceName));
 		DLOG("  Vulkan API v1.3 Support: {}", is_api_supported);
 		DLOG("  Extensions:");
-		for (auto entry : extension_support_map) {
+		for ([[maybe_unused]] auto entry : extension_support_map) {
 			DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
 		}
 		DLOG("  Anisotropy Support: {}", anisotropy_support);

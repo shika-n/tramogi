@@ -56,7 +56,11 @@ Window::~Window() {
 	glfwTerminate();
 }
 
-void Window::resize_callback(GLFWwindow *window, int width, int height) {
+void Window::resize_callback(
+	GLFWwindow *window,
+	[[maybe_unused]] int width,
+	[[maybe_unused]] int height
+) {
 	auto instance = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window));
 	instance->resized = true;
 	DLOG("Resized to {}x{}", width, height);
