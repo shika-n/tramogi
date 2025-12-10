@@ -42,9 +42,7 @@
 #include <glm/trigonometric.hpp>
 
 #include "tramogi/core/image_data.h"
-// #include "tramogi/core/obj_loader.h"
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
+#include "tramogi/core/obj_loader.h"
 
 #include "logging.h"
 
@@ -1216,22 +1214,13 @@ private:
 	}
 
 	void load_model() {
-		// tramogi::core::ObjLoader obj_loader;
-
-		tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
+		tramogi::core::ObjLoader obj_loader;
 		std::unordered_map<Vertex, uint32_t> unique_vertices;
-		std::string warn;
-		std::string err;
 
-		// obj_loader.load_from_file(MODEL_PATH.c_str());
+		obj_loader.load_from_file(MODEL_PATH.c_str());
+		const auto &attrib = obj_loader.get_attributes();
 
-		if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-			DLOG("{}", warn + err);
-		}
-
-		for (auto shape : shapes) {
+		for (auto shape : obj_loader.get_shapes()) {
 			for (const auto &index : shape.mesh.indices) {
 				Vertex vertex {
 					.position =
