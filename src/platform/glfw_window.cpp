@@ -1,6 +1,8 @@
 #include "tramogi/platform/window.h"
 
 #include "../logging.h"
+#include "vulkan/vulkan.hpp"
+#include "vulkan/vulkan_to_string.hpp"
 #include <cstdint>
 #include <expected>
 #include <vector>
@@ -25,10 +27,20 @@ bool Window::init(uint32_t width, uint32_t height, const char *title) {
 	return window != nullptr;
 }
 
-void Window::run() {
-	while (!glfwWindowShouldClose(window)) {
-		glfwPollEvents();
-	}
+bool Window::should_close() {
+	return glfwWindowShouldClose(window);
+}
+
+void Window::poll_events() {
+	glfwPollEvents();
+}
+
+void Window::wait_events() {
+	glfwWaitEvents();
+}
+
+bool Window::get_f3() {
+	return glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS;
 }
 
 std::vector<const char *> Window::get_required_extensions() {
@@ -37,15 +49,15 @@ std::vector<const char *> Window::get_required_extensions() {
 	return std::vector(extensions, extensions + extension_count);
 }
 
-std::expected<VkSurfaceKHR, bool> Window::create_surface(const VkInstance &instance) {
+std::expected<VkSurfaceKHR, const char *> Window::create_surface(const VkInstance &instance) {
 	VkSurfaceKHR surface;
-	if (!glfwCreateWindowSurface(instance, window, nullptr, &surface)) {
-		return std::unexpected(false);
+	if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+		return std::unexpected("Failed to create window surface");
 	}
 	return surface;
 }
 
-Dimension Window::get_size() {
+Dimension Window::get_size() const {
 	Dimension dimension;
 	glfwGetFramebufferSize(window, &dimension.width, &dimension.height);
 	return dimension;

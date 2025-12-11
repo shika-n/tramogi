@@ -15,11 +15,8 @@ target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
 		stdc++exp
-		glfw
 		glm::glm
 		Vulkan::Headers
-
-		tinyobjloader
 
 		${PROJECT_NAME}-core-file
 		${PROJECT_NAME}-platform

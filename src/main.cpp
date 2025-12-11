@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <expected>
 #include <format>
 #include <fstream>
 #include <functional>
@@ -18,8 +19,6 @@
 #include <string>
 #include <vector>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -43,6 +42,7 @@
 
 #include "tramogi/core/image_data.h"
 #include "tramogi/core/model.h"
+#include "tramogi/platform/window.h"
 
 #include "logging.h"
 
@@ -64,37 +64,35 @@ constexpr bool enable_validation_layer = false;
 constexpr bool enable_validation_layer = true;
 #endif
 
+using namespace tramogi::core;
+using namespace tramogi::platform;
+
 struct DeviceSuitableness {
 	bool is_suitable = false;
 	uint32_t graphics_queue_index = 0;
 	uint32_t present_queue_index = 0;
 };
 
-struct Vertex {
-	glm::vec3 position;
-	glm::vec2 tex_coord;
+static vk::VertexInputBindingDescription get_binding_description() {
+	return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+}
 
-	static vk::VertexInputBindingDescription get_binding_description() {
-		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
-	}
-
-	static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
-		return {
-			vk::VertexInputAttributeDescription {
-				0,
-				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(Vertex, position)
-			},
-			vk::VertexInputAttributeDescription {
-				1,
-				0,
-				vk::Format::eR32G32Sfloat,
-				offsetof(Vertex, tex_coord)
-			}
-		};
-	}
-};
+static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
+	return {
+		vk::VertexInputAttributeDescription {
+			0,
+			0,
+			vk::Format::eR32G32B32Sfloat,
+			offsetof(Vertex, position)
+		},
+		vk::VertexInputAttributeDescription {
+			1,
+			0,
+			vk::Format::eR32G32Sfloat,
+			offsetof(Vertex, tex_coord)
+		}
+	};
+}
 
 struct UniformBufferObject {
 	glm::mat4 projection;
@@ -112,7 +110,7 @@ public:
 	}
 
 private:
-	GLFWwindow *window = nullptr;
+	Window window;
 
 	vk::raii::Context context {};
 	vk::raii::Instance instance = nullptr;
@@ -160,8 +158,6 @@ private:
 	vk::raii::DeviceMemory depth_memory = nullptr;
 	vk::raii::ImageView depth_image_view = nullptr;
 
-	bool is_framebuffer_resized = false;
-
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
 
 	DeviceSuitableness device_suitableness {};
@@ -178,15 +174,9 @@ private:
 	};
 
 	void init_window() {
-		if (!glfwInit()) {
+		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
 			throw std::runtime_error("Failed to initialize GLFW");
 		}
-
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-		window = glfwCreateWindow(WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr);
-		glfwSetWindowUserPointer(window, this);
-		glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
 	}
 
 	void init_vulkan() {
@@ -221,14 +211,14 @@ private:
 		bool f3_pressed = false;
 		bool print_fps = false;
 
-		while (!glfwWindowShouldClose(window)) {
+		while (!window.should_close()) {
 			auto now = std::chrono::high_resolution_clock().now();
 			double delta =
 				std::chrono::duration_cast<std::chrono::nanoseconds>(now - last_time).count() /
 				1000000000.0;
 
-			glfwPollEvents();
-			if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS) {
+			window.poll_events();
+			if (window.get_f3()) {
 				if (!f3_pressed) {
 					print_fps = !print_fps;
 					DLOG("Print FPS: {}", print_fps);
@@ -259,9 +249,6 @@ private:
 
 	void cleanup() {
 		cleanup_swapchain();
-
-		glfwDestroyWindow(window);
-		glfwTerminate();
 	}
 
 	void create_instance() {
@@ -321,9 +308,7 @@ private:
 	}
 
 	std::vector<const char *> get_required_extensions() {
-		uint32_t glfw_extension_count = 0;
-		auto glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-		std::vector extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
+		std::vector extensions = window.get_required_extensions();
 
 		if (enable_validation_layer) {
 			extensions.push_back(vk::EXTDebugUtilsExtensionName);
@@ -358,11 +343,13 @@ private:
 	}
 
 	void create_surface() {
-		VkSurfaceKHR surface_khr;
-		if (glfwCreateWindowSurface(*instance, window, nullptr, &surface_khr) != VK_SUCCESS) {
-			throw std::runtime_error("Failed to create window surface");
+		std::expected<VkSurfaceKHR, const char *> surface_result = window.create_surface(*instance);
+
+		if (!surface_result.has_value()) {
+			throw std::runtime_error(std::string(surface_result.error()));
 		}
-		surface = vk::raii::SurfaceKHR(instance, surface_khr);
+
+		surface = vk::raii::SurfaceKHR(instance, surface_result.value());
 	}
 
 	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
@@ -620,18 +607,16 @@ private:
 			return capabilities.currentExtent;
 		}
 
-		int width = 0;
-		int height = 0;
-		glfwGetFramebufferSize(window, &width, &height);
+		Dimension dimension = window.get_size();
 
 		return {
 			std::clamp<uint32_t>(
-				width,
+				dimension.width,
 				capabilities.minImageExtent.width,
 				capabilities.maxImageExtent.width
 			),
 			std::clamp<uint32_t>(
-				height,
+				dimension.height,
 				capabilities.minImageExtent.height,
 				capabilities.maxImageExtent.height
 			)
@@ -729,8 +714,8 @@ private:
 			.pDynamicStates = dynamic_states.data(),
 		};
 
-		auto binding_description = Vertex::get_binding_description();
-		auto attribute_description = Vertex::get_attribute_description();
+		auto binding_description = get_binding_description();
+		auto attribute_description = get_attribute_description();
 		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
 			.vertexBindingDescriptionCount = 1,
 			.pVertexBindingDescriptions = &binding_description,
@@ -1639,8 +1624,8 @@ private:
 
 			result = present_queue.presentKHR(present_info);
 			if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
-				is_framebuffer_resized) {
-				is_framebuffer_resized = false;
+				window.resized) {
+				window.resized = false;
 				recreate_swapchain();
 			} else if (result != vk::Result::eSuccess) {
 				throw std::runtime_error("Failed to present swapchain image");
@@ -1692,12 +1677,10 @@ private:
 	}
 
 	void recreate_swapchain() {
-		int width = 0;
-		int height = 0;
-		glfwGetFramebufferSize(window, &width, &height);
-		while (width == 0 || height == 0) {
-			glfwGetFramebufferSize(window, &width, &height);
-			glfwWaitEvents();
+		Dimension dimension = window.get_size();
+		while (dimension.width == 0 || dimension.height == 0) {
+			dimension = window.get_size();
+			window.wait_events();
 		}
 
 		device.waitIdle();
@@ -1711,7 +1694,7 @@ private:
 		create_image_views();
 		create_depth_resources();
 
-		DLOG("Resized to: {}x{}", width, height);
+		DLOG("Resized to: {}x{}", dimension.width, dimension.height);
 	}
 
 	static std::vector<char> read_shader_file(const char *filepath) {
@@ -1727,11 +1710,6 @@ private:
 		file.close();
 
 		return buffer;
-	}
-
-	static void framebuffer_resize_callback(GLFWwindow *window, int, int) {
-		auto app = reinterpret_cast<ProjectSkyHigh *>(glfwGetWindowUserPointer(window));
-		app->is_framebuffer_resized = true;
 	}
 
 	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
