@@ -1,13 +1,14 @@
 add_library(
 	${PROJECT_NAME}-core-file
 	SHARED
+		model.cpp
 		stb_wrapper.cpp
-		tinyobj_wrapper.cpp
 )
 
 target_link_libraries(
 	${PROJECT_NAME}-core-file
 	PRIVATE
+		glm::glm
 		stdc++exp
 		tinyobjloader
 )

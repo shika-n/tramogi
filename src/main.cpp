@@ -42,7 +42,7 @@
 #include <glm/trigonometric.hpp>
 
 #include "tramogi/core/image_data.h"
-#include "tramogi/core/obj_loader.h"
+#include "tramogi/core/model.h"
 
 #include "logging.h"
 
@@ -72,18 +72,13 @@ struct DeviceSuitableness {
 
 struct Vertex {
 	glm::vec3 position;
-	glm::vec3 color;
 	glm::vec2 tex_coord;
-
-	bool operator==(const Vertex &other) const {
-		return position == other.position && color == other.color && tex_coord == other.tex_coord;
-	}
 
 	static vk::VertexInputBindingDescription get_binding_description() {
 		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
 	}
 
-	static std::array<vk::VertexInputAttributeDescription, 3> get_attribute_description() {
+	static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
 		return {
 			vk::VertexInputAttributeDescription {
 				0,
@@ -94,28 +89,12 @@ struct Vertex {
 			vk::VertexInputAttributeDescription {
 				1,
 				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(Vertex, color)
-			},
-			vk::VertexInputAttributeDescription {
-				2,
-				0,
 				vk::Format::eR32G32Sfloat,
 				offsetof(Vertex, tex_coord)
 			}
 		};
 	}
 };
-
-namespace std {
-template <> struct hash<Vertex> {
-	size_t operator()(const Vertex &vertex) const {
-		return ((hash<glm::vec3>()(vertex.position) ^ (hash<glm::vec3>()(vertex.color) << 1)) >>
-				1) ^
-			   (hash<glm::vec2>()(vertex.tex_coord) << 1);
-	}
-};
-} // namespace std
 
 struct UniformBufferObject {
 	glm::mat4 projection;
@@ -189,15 +168,14 @@ private:
 
 	uint32_t current_frame = 0;
 
+	tramogi::core::Model model;
+
 	std::vector<const char *> required_device_extensions = {
 		vk::KHRSwapchainExtensionName,
 		vk::KHRSpirv14ExtensionName,
 		vk::KHRSynchronization2ExtensionName,
 		vk::KHRCreateRenderpass2ExtensionName,
 	};
-
-	std::vector<Vertex> vertices;
-	std::vector<uint32_t> indices;
 
 	void init_window() {
 		if (!glfwInit()) {
@@ -1214,44 +1192,15 @@ private:
 	}
 
 	void load_model() {
-		tramogi::core::ObjLoader obj_loader;
-		std::unordered_map<Vertex, uint32_t> unique_vertices;
-
-		obj_loader.load_from_file(MODEL_PATH.c_str());
-		const auto &attrib = obj_loader.get_attributes();
-
-		for (auto shape : obj_loader.get_shapes()) {
-			for (const auto &index : shape.mesh.indices) {
-				Vertex vertex {
-					.position =
-						{
-							attrib.vertices[3 * index.vertex_index + 0],
-							attrib.vertices[3 * index.vertex_index + 1],
-							attrib.vertices[3 * index.vertex_index + 2],
-						},
-					.color = {1.0f, 1.0f, 1.0f},
-					.tex_coord = {
-						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
-					},
-				};
-
-				if (unique_vertices.count(vertex) == 0) {
-					unique_vertices[vertex] = static_cast<glm::uint>(vertices.size());
-					vertices.push_back(vertex);
-				}
-
-				indices.push_back(unique_vertices[vertex]);
-			}
-		}
+		model.load_from_obj_file(MODEL_PATH.c_str());
 
 		DLOG("Loading model done!");
-		DLOG("  Vertices: {}", vertices.size());
-		DLOG("  Indices: {}", indices.size());
+		DLOG("  Vertices: {}", model.get_vertices().size());
+		DLOG("  Indices: {}", model.get_indices().size());
 	}
 
 	void create_vertex_buffer() {
-		auto buffer_size = sizeof(vertices[0]) * vertices.size();
+		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
 		vk::raii::Buffer staging_buffer = nullptr;
 		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
@@ -1263,7 +1212,7 @@ private:
 			staging_buffer_memory
 		);
 		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
-		memcpy(staging_data, vertices.data(), buffer_size);
+		memcpy(staging_data, model.get_vertices().data(), buffer_size);
 		staging_buffer_memory.unmapMemory();
 		staging_data = nullptr;
 
@@ -1279,7 +1228,7 @@ private:
 	}
 
 	void create_index_buffer() {
-		auto buffer_size = sizeof(indices[0]) * indices.size();
+		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
 
 		vk::raii::Buffer staging_buffer = nullptr;
 		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
@@ -1291,7 +1240,7 @@ private:
 			staging_buffer_memory
 		);
 		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
-		memcpy(staging_data, indices.data(), buffer_size);
+		memcpy(staging_data, model.get_indices().data(), buffer_size);
 		staging_buffer_memory.unmapMemory();
 		staging_data = nullptr;
 
@@ -1605,7 +1554,7 @@ private:
 		);
 
 		// command_buffers[current_frame].draw(3, 1, 1, 0);
-		command_buffers[current_frame].drawIndexed(indices.size(), 1, 0, 0, 0);
+		command_buffers[current_frame].drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
 		command_buffers[current_frame].endRendering();
 
 		transition_image_layout(

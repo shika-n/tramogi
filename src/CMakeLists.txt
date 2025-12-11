@@ -14,7 +14,6 @@ set_target_properties(
 target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
-		-static-libstdc++
 		stdc++exp
 		glfw
 		glm::glm
