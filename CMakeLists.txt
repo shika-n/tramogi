@@ -16,6 +16,12 @@ add_subdirectory(external/tinyobjloader)
 
 include_directories(include)
 
+set_target_properties(
+	tinyobjloader
+	PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+)
+
 add_compile_options(
 	-pedantic
 	-Wall
