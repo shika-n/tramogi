@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 
+#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#include "vulkan/vulkan_hpp_macros.hpp"
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -38,9 +40,12 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
+#include "graphics/allocator.h"
+#include "graphics/dispatch_loader.h"
 #include "tramogi/core/file.h"
 #include "tramogi/core/image_data.h"
 #include "tramogi/core/model.h"
+#include "tramogi/graphics/buffer.h"
 #include "tramogi/platform/window.h"
 
 #include "logging.h"
@@ -132,8 +137,8 @@ private:
 	vk::raii::CommandPool command_pool = nullptr;
 	std::vector<vk::raii::CommandBuffer> command_buffers;
 
-	vk::raii::Buffer vertex_buffer = nullptr;
-	vk::raii::DeviceMemory vertex_buffer_memory = nullptr;
+	tramogi::graphics::Buffer vertex_buffer;
+	tramogi::graphics::Buffer index_buff;
 	vk::raii::Buffer index_buffer = nullptr;
 	vk::raii::DeviceMemory index_buffer_memory = nullptr;
 	std::vector<vk::raii::Buffer> uniform_buffers;
@@ -184,6 +189,9 @@ private:
 		create_surface();
 		pick_physical_device();
 		create_logical_device();
+
+		tramogi::graphics::init_loader(instance, device);
+
 		create_swapchain();
 		create_image_views();
 		create_descriptor_layout();
@@ -342,9 +350,9 @@ private:
 	}
 
 	void create_surface() {
-		std::expected<VkSurfaceKHR, const char *> surface_result = window.create_surface(*instance);
+		Result<vk::SurfaceKHR> surface_result = window.create_surface(*instance);
 
-		if (!surface_result.has_value()) {
+		if (!surface_result) {
 			throw std::runtime_error(std::string(surface_result.error()));
 		}
 
@@ -1189,29 +1197,33 @@ private:
 	void create_vertex_buffer() {
 		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
-		vk::raii::Buffer staging_buffer = nullptr;
-		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
-		create_buffer(
+		tramogi::graphics::Buffer staging_buffer;
+		auto result = staging_buffer.allocate(
+			physical_device,
+			device,
 			buffer_size,
 			vk::BufferUsageFlagBits::eTransferSrc,
-			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-			staging_buffer,
-			staging_buffer_memory
+			tramogi::graphics::MemoryType::Host
 		);
-		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
-		memcpy(staging_data, model.get_vertices().data(), buffer_size);
-		staging_buffer_memory.unmapMemory();
-		staging_data = nullptr;
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+		staging_buffer.map();
+		memcpy(staging_buffer.get_mapped_memory(), model.get_vertices().data(), buffer_size);
+		staging_buffer.unmap();
 
-		create_buffer(
+		result = vertex_buffer.allocate(
+			physical_device,
+			device,
 			buffer_size,
 			vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
-			vk::MemoryPropertyFlagBits::eDeviceLocal,
-			vertex_buffer,
-			vertex_buffer_memory
+			tramogi::graphics::MemoryType::Gpu
 		);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
 
-		copy_buffer(staging_buffer, vertex_buffer, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), vertex_buffer.get_buffer(), buffer_size);
 	}
 
 	void create_index_buffer() {
@@ -1335,7 +1347,15 @@ private:
 
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
 		vk::raii::CommandBuffer command_copy_buffer = begin_single_time_commands();
-		command_copy_buffer.copyBuffer(src, dst, vk::BufferCopy {0, 0, size});
+		command_copy_buffer.copyBuffer(
+			src,
+			dst,
+			vk::BufferCopy {
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = size,
+			}
+		);
 		end_single_time_commands(command_copy_buffer);
 	}
 
@@ -1529,7 +1549,7 @@ private:
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
 		);
 
-		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
+		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer.get_buffer(), {0});
 		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint32);
 
 		command_buffers[current_frame].bindDescriptorSets(

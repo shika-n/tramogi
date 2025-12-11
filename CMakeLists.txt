@@ -30,10 +30,3 @@ add_compile_options(
 )
 
 add_subdirectory(src)
-
-target_compile_definitions(
-	${PROJECT_NAME}
-	PUBLIC
-		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
-		VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
-)

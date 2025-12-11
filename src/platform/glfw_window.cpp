@@ -1,8 +1,8 @@
 #include "tramogi/platform/window.h"
 
 #include "../logging.h"
+#include "tramogi/core/errors.h"
 #include "vulkan/vulkan.hpp"
-#include "vulkan/vulkan_to_string.hpp"
 #include <cstdint>
 #include <expected>
 #include <vector>
@@ -12,6 +12,8 @@
 #include <vulkan/vulkan_core.h>
 
 namespace tramogi::platform {
+
+using core::Result;
 
 bool Window::init(uint32_t width, uint32_t height, const char *title) {
 	if (!glfwInit()) {
@@ -49,7 +51,7 @@ std::vector<const char *> Window::get_required_extensions() {
 	return std::vector(extensions, extensions + extension_count);
 }
 
-std::expected<VkSurfaceKHR, const char *> Window::create_surface(const VkInstance &instance) {
+Result<vk::SurfaceKHR> Window::create_surface(const vk::Instance &instance) {
 	VkSurfaceKHR surface;
 	if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
 		return std::unexpected("Failed to create window surface");

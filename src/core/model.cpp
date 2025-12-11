@@ -59,7 +59,6 @@ bool Model::load_from_obj_file(const char *filepath) {
 	}
 
 	return res;
-	return true;
 }
 
 } // namespace tramogi::core

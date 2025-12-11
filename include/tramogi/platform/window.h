@@ -1,13 +1,15 @@
 #pragma once
 
+#include "tramogi/core/errors.h"
 #include <cstdint>
-#include <expected>
 #include <vector>
 
 struct GLFWwindow;
 
-typedef struct VkSurfaceKHR_T *VkSurfaceKHR;
-typedef struct VkInstance_T *VkInstance;
+namespace vk {
+class SurfaceKHR;
+class Instance;
+} // namespace vk
 
 namespace tramogi::platform {
 
@@ -33,7 +35,7 @@ public:
 	bool get_f3(); // TODO: TEMPORARY, this should be split into input class
 
 	std::vector<const char *> get_required_extensions();
-	std::expected<VkSurfaceKHR, const char *> create_surface(const VkInstance &instance);
+	core::Result<vk::SurfaceKHR> create_surface(const vk::Instance &instance);
 
 	Dimension get_size() const;
 
