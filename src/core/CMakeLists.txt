@@ -1,6 +1,7 @@
 add_library(
 	${PROJECT_NAME}-core-file
 	SHARED
+		file.cpp
 		model.cpp
 		stb_wrapper.cpp
 )

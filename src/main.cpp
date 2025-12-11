@@ -8,9 +8,7 @@
 #include <exception>
 #include <expected>
 #include <format>
-#include <fstream>
 #include <functional>
-#include <ios>
 #include <limits>
 #include <map>
 #include <print>
@@ -40,6 +38,7 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
+#include "tramogi/core/file.h"
 #include "tramogi/core/image_data.h"
 #include "tramogi/core/model.h"
 #include "tramogi/platform/window.h"
@@ -684,8 +683,11 @@ private:
 	}
 
 	void create_graphics_pipeline() {
-		auto shader_code = read_shader_file("shaders/slang.spv");
-		DLOG("Shader size: {}", shader_code.size() * sizeof(char));
+		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		if (!shader_code_result.has_value()) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
 
 		vk::raii::ShaderModule shader_module = create_shader_module(shader_code);
 
@@ -1695,21 +1697,6 @@ private:
 		create_depth_resources();
 
 		DLOG("Resized to: {}x{}", dimension.width, dimension.height);
-	}
-
-	static std::vector<char> read_shader_file(const char *filepath) {
-		std::ifstream file(filepath, std::ios::ate | std::ios::binary);
-		if (!file.is_open()) {
-			throw std::runtime_error("Failed to open shader file");
-		}
-
-		std::vector<char> buffer(file.tellg());
-		file.seekg(0, std::ios::beg);
-		file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-
-		file.close();
-
-		return buffer;
 	}
 
 	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
