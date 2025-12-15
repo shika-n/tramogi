@@ -2,15 +2,13 @@
 #include <array>
 #include <cassert>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <expected>
 #include <format>
-#include <fstream>
 #include <functional>
-#include <ios>
 #include <limits>
 #include <map>
 #include <print>
@@ -19,8 +17,6 @@
 #include <string>
 #include <vector>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
@@ -42,11 +38,13 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
+#include "graphics/allocator.h"
+#include "graphics/dispatch_loader.h"
+#include "tramogi/core/file.h"
+#include "tramogi/core/image_data.h"
+#include "tramogi/core/model.h"
+#include "tramogi/graphics/buffer.h"
+#include "tramogi/platform/window.h"
 
 #include "logging.h"
 
@@ -68,58 +66,35 @@ constexpr bool enable_validation_layer = false;
 constexpr bool enable_validation_layer = true;
 #endif
 
+using namespace tramogi::core;
+using namespace tramogi::platform;
+
 struct DeviceSuitableness {
 	bool is_suitable = false;
 	uint32_t graphics_queue_index = 0;
 	uint32_t present_queue_index = 0;
 };
 
-struct Vertex {
-	glm::vec3 position;
-	glm::vec3 color;
-	glm::vec2 tex_coord;
+static vk::VertexInputBindingDescription get_binding_description() {
+	return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+}
 
-	bool operator==(const Vertex &other) const {
-		return position == other.position && color == other.color && tex_coord == other.tex_coord;
-	}
-
-	static vk::VertexInputBindingDescription get_binding_description() {
-		return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
-	}
-
-	static std::array<vk::VertexInputAttributeDescription, 3> get_attribute_description() {
-		return {
-			vk::VertexInputAttributeDescription {
-				0,
-				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(Vertex, position)
-			},
-			vk::VertexInputAttributeDescription {
-				1,
-				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(Vertex, color)
-			},
-			vk::VertexInputAttributeDescription {
-				2,
-				0,
-				vk::Format::eR32G32Sfloat,
-				offsetof(Vertex, tex_coord)
-			}
-		};
-	}
-};
-
-namespace std {
-template <> struct hash<Vertex> {
-	size_t operator()(const Vertex &vertex) const {
-		return ((hash<glm::vec3>()(vertex.position) ^ (hash<glm::vec3>()(vertex.color) << 1)) >>
-				1) ^
-			   (hash<glm::vec2>()(vertex.tex_coord) << 1);
-	}
-};
-} // namespace std
+static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
+	return {
+		vk::VertexInputAttributeDescription {
+			0,
+			0,
+			vk::Format::eR32G32B32Sfloat,
+			offsetof(Vertex, position)
+		},
+		vk::VertexInputAttributeDescription {
+			1,
+			0,
+			vk::Format::eR32G32Sfloat,
+			offsetof(Vertex, tex_coord)
+		}
+	};
+}
 
 struct UniformBufferObject {
 	glm::mat4 projection;
@@ -137,7 +112,7 @@ public:
 	}
 
 private:
-	GLFWwindow *window = nullptr;
+	Window window;
 
 	vk::raii::Context context {};
 	vk::raii::Instance instance = nullptr;
@@ -160,13 +135,9 @@ private:
 	vk::raii::CommandPool command_pool = nullptr;
 	std::vector<vk::raii::CommandBuffer> command_buffers;
 
-	vk::raii::Buffer vertex_buffer = nullptr;
-	vk::raii::DeviceMemory vertex_buffer_memory = nullptr;
-	vk::raii::Buffer index_buffer = nullptr;
-	vk::raii::DeviceMemory index_buffer_memory = nullptr;
-	std::vector<vk::raii::Buffer> uniform_buffers;
-	std::vector<vk::raii::DeviceMemory> uniform_buffers_memory;
-	std::vector<void *> uniform_buffers_mapped;
+	tramogi::graphics::VertexBuffer vertex_buffer;
+	tramogi::graphics::IndexBuffer index_buffer;
+	std::vector<tramogi::graphics::UniformBuffer> uniform_buffers;
 
 	vk::raii::DescriptorPool descriptor_pool = nullptr;
 	std::vector<vk::raii::DescriptorSet> descriptor_sets;
@@ -185,13 +156,13 @@ private:
 	vk::raii::DeviceMemory depth_memory = nullptr;
 	vk::raii::ImageView depth_image_view = nullptr;
 
-	bool is_framebuffer_resized = false;
-
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
 
 	DeviceSuitableness device_suitableness {};
 
 	uint32_t current_frame = 0;
+
+	tramogi::core::Model model;
 
 	std::vector<const char *> required_device_extensions = {
 		vk::KHRSwapchainExtensionName,
@@ -200,19 +171,10 @@ private:
 		vk::KHRCreateRenderpass2ExtensionName,
 	};
 
-	std::vector<Vertex> vertices;
-	std::vector<uint32_t> indices;
-
 	void init_window() {
-		if (!glfwInit()) {
+		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
 			throw std::runtime_error("Failed to initialize GLFW");
 		}
-
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-		window = glfwCreateWindow(WIDTH, HEIGHT, "Project Sky-High", nullptr, nullptr);
-		glfwSetWindowUserPointer(window, this);
-		glfwSetFramebufferSizeCallback(window, framebuffer_resize_callback);
 	}
 
 	void init_vulkan() {
@@ -221,6 +183,9 @@ private:
 		create_surface();
 		pick_physical_device();
 		create_logical_device();
+
+		tramogi::graphics::init_loader(instance, device);
+
 		create_swapchain();
 		create_image_views();
 		create_descriptor_layout();
@@ -247,14 +212,14 @@ private:
 		bool f3_pressed = false;
 		bool print_fps = false;
 
-		while (!glfwWindowShouldClose(window)) {
+		while (!window.should_close()) {
 			auto now = std::chrono::high_resolution_clock().now();
 			double delta =
 				std::chrono::duration_cast<std::chrono::nanoseconds>(now - last_time).count() /
 				1000000000.0;
 
-			glfwPollEvents();
-			if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS) {
+			window.poll_events();
+			if (window.get_f3()) {
 				if (!f3_pressed) {
 					print_fps = !print_fps;
 					DLOG("Print FPS: {}", print_fps);
@@ -285,9 +250,6 @@ private:
 
 	void cleanup() {
 		cleanup_swapchain();
-
-		glfwDestroyWindow(window);
-		glfwTerminate();
 	}
 
 	void create_instance() {
@@ -347,9 +309,7 @@ private:
 	}
 
 	std::vector<const char *> get_required_extensions() {
-		uint32_t glfw_extension_count = 0;
-		auto glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-		std::vector extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
+		std::vector extensions = window.get_required_extensions();
 
 		if (enable_validation_layer) {
 			extensions.push_back(vk::EXTDebugUtilsExtensionName);
@@ -384,17 +344,19 @@ private:
 	}
 
 	void create_surface() {
-		VkSurfaceKHR surface_khr;
-		if (glfwCreateWindowSurface(*instance, window, nullptr, &surface_khr) != VK_SUCCESS) {
-			throw std::runtime_error("Failed to create window surface");
+		Result<vk::SurfaceKHR> surface_result = window.create_surface(*instance);
+
+		if (!surface_result) {
+			throw std::runtime_error(std::string(surface_result.error()));
 		}
-		surface = vk::raii::SurfaceKHR(instance, surface_khr);
+
+		surface = vk::raii::SurfaceKHR(instance, surface_result.value());
 	}
 
 	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
 		bool is_suitable = true;
-		bool is_api_supported = true;
-		bool anisotropy_support = true;
+		[[maybe_unused]] bool is_api_supported = true;
+		[[maybe_unused]] bool anisotropy_support = true;
 		std::map<const char *, bool> extension_support_map;
 
 		auto property = device.getProperties();
@@ -452,7 +414,7 @@ private:
 		DLOG("Device: {}", std::string(property.deviceName));
 		DLOG("  Vulkan API v1.3 Support: {}", is_api_supported);
 		DLOG("  Extensions:");
-		for (auto entry : extension_support_map) {
+		for ([[maybe_unused]] auto entry : extension_support_map) {
 			DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
 		}
 		DLOG("  Anisotropy Support: {}", anisotropy_support);
@@ -646,18 +608,16 @@ private:
 			return capabilities.currentExtent;
 		}
 
-		int width = 0;
-		int height = 0;
-		glfwGetFramebufferSize(window, &width, &height);
+		Dimension dimension = window.get_size();
 
 		return {
 			std::clamp<uint32_t>(
-				width,
+				dimension.width,
 				capabilities.minImageExtent.width,
 				capabilities.maxImageExtent.width
 			),
 			std::clamp<uint32_t>(
-				height,
+				dimension.height,
 				capabilities.minImageExtent.height,
 				capabilities.maxImageExtent.height
 			)
@@ -725,8 +685,11 @@ private:
 	}
 
 	void create_graphics_pipeline() {
-		auto shader_code = read_shader_file("shaders/slang.spv");
-		DLOG("Shader size: {}", shader_code.size() * sizeof(char));
+		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		if (!shader_code_result.has_value()) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
 
 		vk::raii::ShaderModule shader_module = create_shader_module(shader_code);
 
@@ -755,8 +718,8 @@ private:
 			.pDynamicStates = dynamic_states.data(),
 		};
 
-		auto binding_description = Vertex::get_binding_description();
-		auto attribute_description = Vertex::get_attribute_description();
+		auto binding_description = get_binding_description();
+		auto attribute_description = get_attribute_description();
 		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
 			.vertexBindingDescriptionCount = 1,
 			.pVertexBindingDescriptions = &binding_description,
@@ -911,46 +874,26 @@ private:
 	}
 
 	void create_texture_image() {
-		int texture_width = 0;
-		int texture_height = 0;
-		int texture_channels = 0;
-		stbi_uc *pixels = stbi_load(
-			TEXTURE_PATH.c_str(),
-			&texture_width,
-			&texture_height,
-			&texture_channels,
-			STBI_rgb_alpha
-		);
-
-		mip_levels = static_cast<uint32_t>(
-						 std::floor(std::log2(std::max(texture_width, texture_height)))
-					 ) +
-					 1;
-
-		vk::DeviceSize image_size = texture_width * texture_height * 4;
-
-		if (!pixels) {
+		tramogi::core::ImageData image_data;
+		if (!image_data.load_from_file(TEXTURE_PATH.c_str())) {
 			// TODO: handle missing texture without throwing
 			throw std::runtime_error("Failed to load texture image");
 		}
 
-		vk::raii::Buffer staging_buffer({});
-		vk::raii::DeviceMemory staging_memory({});
-		create_buffer(
-			image_size,
-			vk::BufferUsageFlagBits::eTransferSrc,
-			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-			staging_buffer,
-			staging_memory
-		);
+		int texture_width = image_data.get_width();
+		int texture_height = image_data.get_height();
+		mip_levels = image_data.get_mip_levels();
+		vk::DeviceSize image_size = image_data.get_size();
 
-		void *data = staging_memory.mapMemory(0, image_size);
-		memcpy(data, pixels, image_size);
-		staging_memory.unmapMemory();
-		data = nullptr;
+		tramogi::graphics::StagingBuffer staging_buffer;
+		auto result = staging_buffer.init(physical_device, device, image_size);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
 
-		stbi_image_free(pixels);
-		pixels = nullptr;
+		staging_buffer.map();
+		staging_buffer.upload_data(image_data.get_data());
+		staging_buffer.unmap();
 
 		create_image(
 			texture_width,
@@ -971,13 +914,12 @@ private:
 			vk::ImageLayout::eTransferDstOptimal,
 			mip_levels
 		);
-		copy_buffer_to_image(staging_buffer, texture_image, texture_width, texture_height);
-		// transition_image_layout(
-		// 	texture_image,
-		// 	vk::ImageLayout::eTransferDstOptimal,
-		// 	vk::ImageLayout::eShaderReadOnlyOptimal,
-		// 	mip_levels
-		// );
+		copy_buffer_to_image(
+			staging_buffer.get_buffer(),
+			texture_image,
+			texture_width,
+			texture_height
+		);
 
 		generate_mipmaps(texture_image, texture_width, texture_height, mip_levels);
 	}
@@ -1206,152 +1148,66 @@ private:
 		command_buffers = vk::raii::CommandBuffers(device, allocateInfo);
 	}
 
-	void create_buffer(
-		vk::DeviceSize size,
-		vk::BufferUsageFlags usage,
-		vk::MemoryPropertyFlags memory_properties,
-		vk::raii::Buffer &buffer,
-		vk::raii::DeviceMemory &buffer_memory
-	) {
-		vk::BufferCreateInfo buffer_info {
-			.size = size,
-			.usage = usage,
-			.sharingMode = vk::SharingMode::eExclusive,
-		};
-
-		buffer = vk::raii::Buffer(device, buffer_info);
-
-		auto memory_requirements = buffer.getMemoryRequirements();
-		vk::MemoryAllocateInfo memory_allocate_info {
-			.allocationSize = memory_requirements.size,
-			.memoryTypeIndex =
-				find_memory_type(memory_requirements.memoryTypeBits, memory_properties)
-		};
-
-		buffer_memory = vk::raii::DeviceMemory(device, memory_allocate_info);
-
-		buffer.bindMemory(buffer_memory, 0);
-	}
-
 	void load_model() {
-		tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
-		std::unordered_map<Vertex, uint32_t> unique_vertices;
-		std::string warn;
-		std::string err;
-
-		if (tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-			DLOG("{}", warn + err);
-		}
-
-		for (auto shape : shapes) {
-			for (const auto &index : shape.mesh.indices) {
-				Vertex vertex {
-					.position =
-						{
-							attrib.vertices[3 * index.vertex_index + 0],
-							attrib.vertices[3 * index.vertex_index + 1],
-							attrib.vertices[3 * index.vertex_index + 2],
-						},
-					.color = {1.0f, 1.0f, 1.0f},
-					.tex_coord = {
-						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0f - attrib.texcoords[2 * index.texcoord_index + 1],
-					},
-				};
-
-				if (unique_vertices.count(vertex) == 0) {
-					unique_vertices[vertex] = static_cast<glm::uint>(vertices.size());
-					vertices.push_back(vertex);
-				}
-
-				indices.push_back(unique_vertices[vertex]);
-			}
-		}
+		model.load_from_obj_file(MODEL_PATH.c_str());
 
 		DLOG("Loading model done!");
-		DLOG("  Vertices: {}", vertices.size());
-		DLOG("  Indices: {}", indices.size());
+		DLOG("  Vertices: {}", model.get_vertices().size());
+		DLOG("  Indices: {}", model.get_indices().size());
 	}
 
 	void create_vertex_buffer() {
-		auto buffer_size = sizeof(vertices[0]) * vertices.size();
+		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
-		vk::raii::Buffer staging_buffer = nullptr;
-		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
-		create_buffer(
-			buffer_size,
-			vk::BufferUsageFlagBits::eTransferSrc,
-			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-			staging_buffer,
-			staging_buffer_memory
-		);
-		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
-		memcpy(staging_data, vertices.data(), buffer_size);
-		staging_buffer_memory.unmapMemory();
-		staging_data = nullptr;
+		tramogi::graphics::StagingBuffer staging_buffer;
+		auto result = staging_buffer.init(physical_device, device, buffer_size);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+		staging_buffer.map();
+		staging_buffer.upload_data(model.get_vertices().data());
+		staging_buffer.unmap();
 
-		create_buffer(
-			buffer_size,
-			vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
-			vk::MemoryPropertyFlagBits::eDeviceLocal,
-			vertex_buffer,
-			vertex_buffer_memory
-		);
+		result = vertex_buffer.init(physical_device, device, buffer_size);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
 
-		copy_buffer(staging_buffer, vertex_buffer, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), vertex_buffer.get_buffer(), buffer_size);
 	}
 
 	void create_index_buffer() {
-		auto buffer_size = sizeof(indices[0]) * indices.size();
+		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
 
-		vk::raii::Buffer staging_buffer = nullptr;
-		vk::raii::DeviceMemory staging_buffer_memory = nullptr;
-		create_buffer(
-			buffer_size,
-			vk::BufferUsageFlagBits::eTransferSrc,
-			vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-			staging_buffer,
-			staging_buffer_memory
-		);
-		void *staging_data = staging_buffer_memory.mapMemory(0, buffer_size);
-		memcpy(staging_data, indices.data(), buffer_size);
-		staging_buffer_memory.unmapMemory();
-		staging_data = nullptr;
+		tramogi::graphics::StagingBuffer staging_buffer;
+		auto result = staging_buffer.init(physical_device, device, buffer_size);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+		staging_buffer.map();
+		staging_buffer.upload_data(model.get_indices().data());
+		staging_buffer.unmap();
 
-		create_buffer(
-			buffer_size,
-			vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
-			vk::MemoryPropertyFlagBits::eDeviceLocal,
-			index_buffer,
-			index_buffer_memory
-		);
-
-		copy_buffer(staging_buffer, index_buffer, buffer_size);
+		result = index_buffer.init(physical_device, device, buffer_size);
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+		copy_buffer(staging_buffer.get_buffer(), index_buffer.get_buffer(), buffer_size);
 	}
 
 	void create_uniform_buffers() {
 		uniform_buffers.clear();
-		uniform_buffers_memory.clear();
-		uniform_buffers_mapped.clear();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
-			vk::raii::Buffer buffer({});
-			vk::raii::DeviceMemory buffer_memory({});
-			create_buffer(
-				buffer_size,
-				vk::BufferUsageFlagBits::eUniformBuffer,
-				vk::MemoryPropertyFlagBits::eHostVisible |
-					vk::MemoryPropertyFlagBits::eHostCoherent,
-				buffer,
-				buffer_memory
-			);
+			tramogi::graphics::UniformBuffer ubo;
+			auto result = ubo.init(physical_device, device, buffer_size);
+			if (!result) {
+				throw std::runtime_error(result.error());
+			}
+			ubo.map();
 
-			uniform_buffers.emplace_back(std::move(buffer));
-			uniform_buffers_mapped.emplace_back(buffer_memory.mapMemory(0, buffer_size));
-			uniform_buffers_memory.emplace_back(std::move(buffer_memory));
+			uniform_buffers.emplace_back(std::move(ubo));
 		}
 	}
 
@@ -1391,7 +1247,7 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DescriptorBufferInfo buffer_info {
-				.buffer = uniform_buffers[i],
+				.buffer = uniform_buffers[i].get_buffer(),
 				.offset = 0,
 				.range = sizeof(UniformBufferObject),
 			};
@@ -1424,7 +1280,15 @@ private:
 
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
 		vk::raii::CommandBuffer command_copy_buffer = begin_single_time_commands();
-		command_copy_buffer.copyBuffer(src, dst, vk::BufferCopy {0, 0, size});
+		command_copy_buffer.copyBuffer(
+			src,
+			dst,
+			vk::BufferCopy {
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = size,
+			}
+		);
 		end_single_time_commands(command_copy_buffer);
 	}
 
@@ -1618,8 +1482,9 @@ private:
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
 		);
 
-		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer, {0});
-		command_buffers[current_frame].bindIndexBuffer(index_buffer, 0, vk::IndexType::eUint32);
+		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer.get_buffer(), {0});
+		command_buffers[current_frame]
+			.bindIndexBuffer(*index_buffer.get_buffer(), 0, vk::IndexType::eUint32);
 
 		command_buffers[current_frame].bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
@@ -1630,7 +1495,7 @@ private:
 		);
 
 		// command_buffers[current_frame].draw(3, 1, 1, 0);
-		command_buffers[current_frame].drawIndexed(indices.size(), 1, 0, 0, 0);
+		command_buffers[current_frame].drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
 		command_buffers[current_frame].endRendering();
 
 		transition_image_layout(
@@ -1715,8 +1580,8 @@ private:
 
 			result = present_queue.presentKHR(present_info);
 			if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
-				is_framebuffer_resized) {
-				is_framebuffer_resized = false;
+				window.resized) {
+				window.resized = false;
 				recreate_swapchain();
 			} else if (result != vk::Result::eSuccess) {
 				throw std::runtime_error("Failed to present swapchain image");
@@ -1759,7 +1624,7 @@ private:
 		);
 		ubo.projection[1][1] *= -1;
 
-		memcpy(uniform_buffers_mapped[current_image], &ubo, sizeof(ubo));
+		uniform_buffers[current_image].upload_data(&ubo);
 	}
 
 	void cleanup_swapchain() {
@@ -1768,12 +1633,10 @@ private:
 	}
 
 	void recreate_swapchain() {
-		int width = 0;
-		int height = 0;
-		glfwGetFramebufferSize(window, &width, &height);
-		while (width == 0 || height == 0) {
-			glfwGetFramebufferSize(window, &width, &height);
-			glfwWaitEvents();
+		Dimension dimension = window.get_size();
+		while (dimension.width == 0 || dimension.height == 0) {
+			dimension = window.get_size();
+			window.wait_events();
 		}
 
 		device.waitIdle();
@@ -1787,27 +1650,7 @@ private:
 		create_image_views();
 		create_depth_resources();
 
-		DLOG("Resized to: {}x{}", width, height);
-	}
-
-	static std::vector<char> read_shader_file(const char *filepath) {
-		std::ifstream file(filepath, std::ios::ate | std::ios::binary);
-		if (!file.is_open()) {
-			throw std::runtime_error("Failed to open shader file");
-		}
-
-		std::vector<char> buffer(file.tellg());
-		file.seekg(0, std::ios::beg);
-		file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-
-		file.close();
-
-		return buffer;
-	}
-
-	static void framebuffer_resize_callback(GLFWwindow *window, int, int) {
-		auto app = reinterpret_cast<ProjectSkyHigh *>(glfwGetWindowUserPointer(window));
-		app->is_framebuffer_resized = true;
+		DLOG("Resized to: {}x{}", dimension.width, dimension.height);
 	}
 
 	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(

@@ -13,7 +13,6 @@ RUN sudo dnf install -y \
 	mesa-libGL-devel \
 	libfontenc-devel \
 	libglvnd-devel \
-	libstdc++-static \
 	libuuid-devel \
 	libXaw-devel \
 	libxcb-devel \

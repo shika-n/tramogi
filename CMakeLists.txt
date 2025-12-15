@@ -7,15 +7,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# set(CMAKE_SKIP_BUILD_RPATH TRUE)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 add_subdirectory(external/glfw)
 add_subdirectory(external/glm)
 add_subdirectory(external/Vulkan-Headers)
 add_subdirectory(external/tinyobjloader)
 
-include_directories(external/stb)
 include_directories(include)
+
+set_target_properties(
+	tinyobjloader
+	PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+)
 
 add_compile_options(
 	-pedantic
@@ -25,10 +31,3 @@ add_compile_options(
 )
 
 add_subdirectory(src)
-
-target_compile_definitions(
-	${PROJECT_NAME}
-	PUBLIC
-		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
-		VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
-)

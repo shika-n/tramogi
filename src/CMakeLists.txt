@@ -1,9 +1,12 @@
+add_subdirectory(core)
+add_subdirectory(graphics)
 add_subdirectory(platform)
 
 add_executable(
 	${PROJECT_NAME}
 	main.cpp
 )
+
 set_target_properties(
 	${PROJECT_NAME}
 	PROPERTIES
@@ -13,14 +16,20 @@ set_target_properties(
 target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
-		-static-libstdc++
 		stdc++exp
-		glfw
 		glm::glm
-		tinyobjloader
 		Vulkan::Headers
 
+		${PROJECT_NAME}-core-file
+		${PROJECT_NAME}-graphics
 		${PROJECT_NAME}-platform
+)
+
+target_compile_definitions(
+	${PROJECT_NAME}
+	PRIVATE
+		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
+		VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
 )
 
 function (add_slang_shader_target TARGET)

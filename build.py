@@ -38,9 +38,9 @@ def build(args: list):
                     "Unknown option '{}' for build subcommand".format(arg)
                 )
 
-    start_time = time.monotonic()
+    start_time = time.perf_counter()
     builder.build()
-    end_time = time.monotonic()
+    end_time = time.perf_counter()
     print("Build time: {:.2f}s".format(end_time - start_time), flush=True)
 
 
@@ -51,7 +51,7 @@ def run():
         os.path.join(
             project_dir,
             "build",
-            "src",
+            "bin",
             "Debug",
             "Tramogi",
         ),
