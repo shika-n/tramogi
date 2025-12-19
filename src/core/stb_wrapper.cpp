@@ -4,8 +4,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#include "../logging.h"
-
 namespace tramogi::core {
 
 ImageData::~ImageData() {
@@ -19,7 +17,6 @@ uint32_t ImageData::get_mip_levels() const {
 }
 
 uint32_t ImageData::get_size() const {
-	DLOG("CH: {}", channels);
 	return width * height * 4;
 }
 

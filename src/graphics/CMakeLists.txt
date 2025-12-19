@@ -3,7 +3,11 @@ add_library(
 	SHARED
 		allocator.cpp
 		buffer.cpp
+		device.cpp
 		dispatch_loader.cpp
+		instance.cpp
+		physical_device.cpp
+		surface.cpp
 )
 
 target_link_libraries(

@@ -1,4 +1,6 @@
 #include "allocator.h"
+#include "device.h"
+#include "physical_device.h"
 #include "tramogi/core/errors.h"
 #include <cstdint>
 #include <vulkan/vulkan_raii.hpp>
@@ -8,11 +10,11 @@ namespace tramogi::graphics {
 using core::Result;
 
 Result<uint32_t> find_memory_type(
-	vk::PhysicalDevice physical_device,
+	const PhysicalDevice &physical_device,
 	uint32_t type_filter,
 	vk::MemoryPropertyFlags properties
 ) {
-	auto memory_properties = physical_device.getMemoryProperties();
+	auto memory_properties = physical_device.get_memory_properties();
 	for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
 		if (type_filter & (1 << i) &&
 			(memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -24,8 +26,7 @@ Result<uint32_t> find_memory_type(
 }
 
 core::Result<vk::raii::DeviceMemory> allocate_memory(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
+	const Device &device,
 	vk::MemoryRequirements memory_requirements,
 	MemoryType memory_type
 ) {
@@ -35,8 +36,11 @@ core::Result<vk::raii::DeviceMemory> allocate_memory(
 		properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
 	}
 
-	auto memory_index =
-		find_memory_type(physical_device, memory_requirements.memoryTypeBits, properties);
+	auto memory_index = find_memory_type(
+		device.get_physical_device(),
+		memory_requirements.memoryTypeBits,
+		properties
+	);
 	if (!memory_index) {
 		return std::unexpected(memory_index.error());
 	}
@@ -46,7 +50,7 @@ core::Result<vk::raii::DeviceMemory> allocate_memory(
 		.memoryTypeIndex = memory_index.value()
 	};
 
-	return vk::raii::DeviceMemory(device, allocate_info);
+	return vk::raii::DeviceMemory(device.get_device(), allocate_info);
 }
 
 } // namespace tramogi::graphics

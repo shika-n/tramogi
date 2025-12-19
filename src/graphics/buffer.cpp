@@ -1,6 +1,6 @@
 #include "tramogi/graphics/buffer.h"
-#include "../logging.h"
 #include "allocator.h"
+#include "device.h"
 #include "tramogi/core/errors.h"
 #include <cassert>
 #include <cstdint>
@@ -49,33 +49,23 @@ vk::raii::Buffer &Buffer::get_buffer() {
 }
 
 Buffer::Buffer() : impl(std::make_unique<Impl>()) {};
-Buffer::~Buffer() {
-	DLOG("Buffer destroyed");
-};
+Buffer::~Buffer() = default;
 Buffer::Buffer(Buffer &&) = default;
 Buffer &Buffer::operator=(Buffer &&) = default;
 
-Result<> StagingBuffer::init(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
-	uint64_t size
-) {
+Result<> StagingBuffer::init(const Device &device, uint64_t size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
-	impl->buffer = vk::raii::Buffer(device, create_info);
+	impl->buffer = vk::raii::Buffer(device.get_device(), create_info);
 	impl->buffer_size = size;
 	impl->memory_type = MemoryType::Host;
 
-	auto allocation_result = allocate_memory(
-		physical_device,
-		device,
-		impl->buffer.getMemoryRequirements(),
-		impl->memory_type
-	);
+	auto allocation_result =
+		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
 		return std::unexpected(allocation_result.error());
 	}
@@ -86,27 +76,19 @@ Result<> StagingBuffer::init(
 	return {};
 }
 
-Result<> VertexBuffer::init(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
-	uint64_t size
-) {
+Result<> VertexBuffer::init(const Device &device, uint64_t size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
-	impl->buffer = vk::raii::Buffer(device, create_info);
+	impl->buffer = vk::raii::Buffer(device.get_device(), create_info);
 	impl->buffer_size = size;
 	impl->memory_type = MemoryType::Gpu;
 
-	auto allocation_result = allocate_memory(
-		physical_device,
-		device,
-		impl->buffer.getMemoryRequirements(),
-		impl->memory_type
-	);
+	auto allocation_result =
+		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
 		return std::unexpected(allocation_result.error());
 	}
@@ -117,27 +99,19 @@ Result<> VertexBuffer::init(
 	return {};
 }
 
-Result<> IndexBuffer::init(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
-	uint64_t size
-) {
+Result<> IndexBuffer::init(const Device &device, uint64_t size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
-	impl->buffer = vk::raii::Buffer(device, create_info);
+	impl->buffer = vk::raii::Buffer(device.get_device(), create_info);
 	impl->buffer_size = size;
 	impl->memory_type = MemoryType::Gpu;
 
-	auto allocation_result = allocate_memory(
-		physical_device,
-		device,
-		impl->buffer.getMemoryRequirements(),
-		impl->memory_type
-	);
+	auto allocation_result =
+		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
 		return std::unexpected(allocation_result.error());
 	}
@@ -148,27 +122,19 @@ Result<> IndexBuffer::init(
 	return {};
 }
 
-Result<> UniformBuffer::init(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
-	uint64_t size
-) {
+Result<> UniformBuffer::init(const Device &device, uint64_t size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eUniformBuffer,
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
-	impl->buffer = vk::raii::Buffer(device, create_info);
+	impl->buffer = vk::raii::Buffer(device.get_device(), create_info);
 	impl->buffer_size = size;
 	impl->memory_type = MemoryType::Host;
 
-	auto allocation_result = allocate_memory(
-		physical_device,
-		device,
-		impl->buffer.getMemoryRequirements(),
-		impl->memory_type
-	);
+	auto allocation_result =
+		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
 		return std::unexpected(allocation_result.error());
 	}

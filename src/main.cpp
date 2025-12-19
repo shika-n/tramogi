@@ -8,11 +8,8 @@
 #include <exception>
 #include <expected>
 #include <format>
-#include <functional>
 #include <limits>
-#include <map>
 #include <print>
-#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -28,6 +25,7 @@
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
+#include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/vector_float2.hpp>
@@ -39,14 +37,17 @@
 #include <glm/trigonometric.hpp>
 
 #include "graphics/allocator.h"
+#include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
+#include "graphics/instance.h"
+#include "graphics/physical_device.h"
+#include "graphics/surface.h"
+#include "logging.h"
 #include "tramogi/core/file.h"
 #include "tramogi/core/image_data.h"
 #include "tramogi/core/model.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/platform/window.h"
-
-#include "logging.h"
 
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
@@ -55,25 +56,8 @@ const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
-// TODO: Add validation layers
-const std::array<const char *, 1> validation_layers = {
-	"VK_LAYER_KHRONOS_validation",
-};
-
-#ifdef NDEBUG
-constexpr bool enable_validation_layer = false;
-#else
-constexpr bool enable_validation_layer = true;
-#endif
-
 using namespace tramogi::core;
 using namespace tramogi::platform;
-
-struct DeviceSuitableness {
-	bool is_suitable = false;
-	uint32_t graphics_queue_index = 0;
-	uint32_t present_queue_index = 0;
-};
 
 static vk::VertexInputBindingDescription get_binding_description() {
 	return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
@@ -104,6 +88,8 @@ struct UniformBufferObject {
 
 class ProjectSkyHigh {
 public:
+	ProjectSkyHigh() : device(physical_device) {}
+
 	void run() {
 		init_window();
 		init_vulkan();
@@ -114,13 +100,9 @@ public:
 private:
 	Window window;
 
-	vk::raii::Context context {};
-	vk::raii::Instance instance = nullptr;
-	vk::raii::PhysicalDevice physical_device = nullptr;
-	vk::raii::Device device = nullptr;
-	vk::raii::Queue graphics_queue = nullptr;
-	vk::raii::Queue present_queue = nullptr;
-	vk::raii::SurfaceKHR surface = nullptr;
+	tramogi::graphics::Instance instance;
+	tramogi::graphics::PhysicalDevice physical_device;
+	tramogi::graphics::Device device;
 
 	vk::SurfaceFormatKHR swapchain_surface_format {};
 	vk::Extent2D swapchain_extent {};
@@ -142,10 +124,6 @@ private:
 	vk::raii::DescriptorPool descriptor_pool = nullptr;
 	std::vector<vk::raii::DescriptorSet> descriptor_sets;
 
-	std::vector<vk::raii::Semaphore> present_complete_semaphores;
-	std::vector<vk::raii::Semaphore> render_finished_semaphores;
-	std::vector<vk::raii::Fence> draw_fences;
-
 	uint32_t mip_levels = 0;
 	vk::raii::Image texture_image = nullptr;
 	vk::raii::DeviceMemory texture_memory = nullptr;
@@ -158,18 +136,9 @@ private:
 
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
 
-	DeviceSuitableness device_suitableness {};
-
 	uint32_t current_frame = 0;
 
 	tramogi::core::Model model;
-
-	std::vector<const char *> required_device_extensions = {
-		vk::KHRSwapchainExtensionName,
-		vk::KHRSpirv14ExtensionName,
-		vk::KHRSynchronization2ExtensionName,
-		vk::KHRCreateRenderpass2ExtensionName,
-	};
 
 	void init_window() {
 		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
@@ -179,12 +148,8 @@ private:
 
 	void init_vulkan() {
 		create_instance();
-		setup_debug_messenger();
-		create_surface();
 		pick_physical_device();
 		create_logical_device();
-
-		tramogi::graphics::init_loader(instance, device);
 
 		create_swapchain();
 		create_image_views();
@@ -202,7 +167,6 @@ private:
 		create_descriptor_pool();
 		create_descriptor_sets();
 		create_command_buffers();
-		create_sync_objects();
 	}
 
 	void main_loop() {
@@ -229,7 +193,7 @@ private:
 				f3_pressed = false;
 			}
 
-			draw_frame();
+			draw_frame(delta);
 
 			++frames;
 			timer += delta;
@@ -245,7 +209,7 @@ private:
 			last_time = now;
 		}
 
-		device.waitIdle();
+		device.wait_idle(current_frame);
 	}
 
 	void cleanup() {
@@ -253,281 +217,34 @@ private:
 	}
 
 	void create_instance() {
-		constexpr vk::ApplicationInfo app_info {
-			.pApplicationName = "Project Sky-High",
-			.applicationVersion = VK_MAKE_VERSION(0, 1, 0),
-			.pEngineName = "Sky-High Engine",
-			.engineVersion = VK_MAKE_VERSION(0, 1, 0),
-			.apiVersion = vk::ApiVersion14,
-		};
-
-		std::vector<const char *> required_layers;
-		if (enable_validation_layer) {
-			required_layers.assign(validation_layers.begin(), validation_layers.end());
+		auto extensions = window.get_required_extensions();
+		auto result = instance.init(extensions);
+		if (!result) {
+			throw std::runtime_error(result.error());
 		}
-
-		auto layer_properties = context.enumerateInstanceLayerProperties();
-		if (std::ranges::any_of(required_layers, [&layer_properties](const auto &required_layer) {
-				return std::ranges::none_of(
-					layer_properties,
-					[required_layer](const auto &layer_property) {
-						return strcmp(layer_property.layerName, required_layer) == 0;
-					}
-				);
-			})) {
-			throw std::runtime_error("One or more required validation layers are not supported");
-		}
-
-		auto extensions = get_required_extensions();
-
-		auto available_extensions = context.enumerateInstanceExtensionProperties();
-
-		DLOG("Instance Extension:");
-		for (uint32_t i = 0; i < extensions.size(); ++i) {
-			DLOG("  - {}", extensions[i]);
-			if (std::ranges::none_of(
-					available_extensions,
-					[extension = extensions[i]](const auto &available_extension) {
-						return std::strcmp(available_extension.extensionName, extension) == 0;
-					}
-				)) {
-				throw std::runtime_error(
-					"Required extension not supported: " + std::string(extensions[i])
-				);
-			}
-		}
-
-		vk::InstanceCreateInfo create_info {
-			.pApplicationInfo = &app_info,
-			.enabledLayerCount = static_cast<uint32_t>(required_layers.size()),
-			.ppEnabledLayerNames = required_layers.data(),
-			.enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
-			.ppEnabledExtensionNames = extensions.data(),
-		};
-
-		instance = vk::raii::Instance(context, create_info);
 	}
 
-	std::vector<const char *> get_required_extensions() {
-		std::vector extensions = window.get_required_extensions();
-
-		if (enable_validation_layer) {
-			extensions.push_back(vk::EXTDebugUtilsExtensionName);
-		}
-
-		return extensions;
-	}
-
-	void setup_debug_messenger() {
-		if (!enable_validation_layer) {
-			return;
-		}
-
-		vk::DebugUtilsMessageSeverityFlagsEXT severity_flags(
-			vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose |
-			vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-			vk::DebugUtilsMessageSeverityFlagBitsEXT::eError
-		);
-		vk::DebugUtilsMessageTypeFlagsEXT message_type_flags(
-			vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-			vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-			vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
-		);
-
-		vk::DebugUtilsMessengerCreateInfoEXT debug_messenger_info {
-			.messageSeverity = severity_flags,
-			.messageType = message_type_flags,
-			.pfnUserCallback = &debug_callback,
-		};
-
-		debug_messenger = instance.createDebugUtilsMessengerEXT(debug_messenger_info);
-	}
-
-	void create_surface() {
-		Result<vk::SurfaceKHR> surface_result = window.create_surface(*instance);
-
+	void pick_physical_device() {
+		Result<vk::SurfaceKHR> surface_result = window.create_surface(instance.get_instance());
 		if (!surface_result) {
 			throw std::runtime_error(std::string(surface_result.error()));
 		}
 
-		surface = vk::raii::SurfaceKHR(instance, surface_result.value());
-	}
-
-	DeviceSuitableness get_device_suitableness(vk::raii::PhysicalDevice device) {
-		bool is_suitable = true;
-		[[maybe_unused]] bool is_api_supported = true;
-		[[maybe_unused]] bool anisotropy_support = true;
-		std::map<const char *, bool> extension_support_map;
-
-		auto property = device.getProperties();
-
-		if (property.apiVersion < VK_API_VERSION_1_3) {
-			is_suitable = false;
-			is_api_supported = false;
+		auto result = physical_device.init(instance, surface_result.value());
+		if (!result) {
+			throw std::runtime_error(result.error());
 		}
-
-		auto available_extensions = device.enumerateDeviceExtensionProperties();
-		for (const auto &extension : required_device_extensions) {
-			extension_support_map[extension] = true;
-			auto iter = std::ranges::find_if(
-				available_extensions,
-				[extension](const auto &available_extension) {
-					return std::strcmp(available_extension.extensionName, extension);
-				}
-			);
-			if (iter == available_extensions.end()) {
-				is_suitable = false;
-				extension_support_map[extension] = false;
-			}
-		}
-
-		auto supported_features = device.getFeatures();
-		if (!supported_features.samplerAnisotropy) {
-			is_suitable = false;
-			anisotropy_support = false;
-		}
-
-		// TODO: Improve queue query
-		auto queue_families = device.getQueueFamilyProperties();
-		uint32_t graphics_queue_index = queue_families.size();
-		uint32_t present_queue_index = queue_families.size();
-		for (uint32_t i = 0; i < queue_families.size(); ++i) {
-			const auto &queue_family = queue_families.at(i);
-
-			if (graphics_queue_index == queue_families.size() &&
-				(queue_family.queueFlags & vk::QueueFlagBits::eGraphics) !=
-					static_cast<vk::QueueFlags>(0)) {
-				graphics_queue_index = i;
-			}
-
-			if (present_queue_index == queue_families.size() &&
-				device.getSurfaceSupportKHR(i, *surface)) {
-				present_queue_index = i;
-			}
-		}
-
-		if (graphics_queue_index == queue_families.size() ||
-			present_queue_index == queue_families.size()) {
-			is_suitable = false;
-		}
-
-		DLOG("Device: {}", std::string(property.deviceName));
-		DLOG("  Vulkan API v1.3 Support: {}", is_api_supported);
-		DLOG("  Extensions:");
-		for ([[maybe_unused]] auto entry : extension_support_map) {
-			DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
-		}
-		DLOG("  Anisotropy Support: {}", anisotropy_support);
-		DLOG("  Queue:");
-		DLOG(
-			"    Graphics Queue Index: {}",
-			graphics_queue_index == queue_families.size() ? "Not Found"
-														  : std::to_string(graphics_queue_index)
-		);
-		DLOG(
-			"    Present Queue Index: {}",
-			present_queue_index == queue_families.size() ? "Not Found"
-														 : std::to_string(present_queue_index)
-		);
-
-		return {
-			.is_suitable = is_suitable,
-			.graphics_queue_index = graphics_queue_index,
-			.present_queue_index = present_queue_index
-		};
-	}
-
-	uint32_t get_device_score(vk::raii::PhysicalDevice device) {
-		uint32_t score = 0;
-
-		auto property = device.getProperties();
-		if (property.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
-			score += 1000;
-		} else if (property.deviceType == vk::PhysicalDeviceType::eIntegratedGpu) {
-			score += 200;
-		} else {
-			score += 100;
-		}
-
-		return score;
-	}
-
-	void pick_physical_device() {
-		auto devices = instance.enumeratePhysicalDevices();
-		if (devices.empty()) {
-			throw std::runtime_error("No GPU that supports Vulkan found");
-		}
-
-		std::unordered_map<vk::raii::PhysicalDevice *, DeviceSuitableness> device_suitableness_map;
-		std::ranges::for_each(devices, [this, &device_suitableness_map](auto &device) {
-			device_suitableness_map[&device] = get_device_suitableness(device);
-		});
-
-		auto suitable_devices =
-			std::ranges::filter_view(devices, [&device_suitableness_map](auto &device) {
-				return device_suitableness_map[&device].is_suitable;
-			});
-
-		std::multimap<uint32_t, vk::raii::PhysicalDevice *, std::greater<uint32_t>> device_scores;
-		for (auto &device : suitable_devices) {
-			uint32_t score = get_device_score(device);
-			device_scores.insert(std::make_pair(score, &device));
-		}
-
-		for (auto score_pair : device_scores) {
-			if (score_pair.first > 0) {
-				physical_device = *score_pair.second;
-				device_suitableness = device_suitableness_map[score_pair.second];
-				break;
-			}
-		}
-
-		if (physical_device == nullptr) {
-			throw std::runtime_error("No suitable device found");
-		}
-
-		DLOG("Using: {}", physical_device.getProperties().deviceName.data());
 	}
 
 	void create_logical_device() {
-		float priority = 0.0f;
-		vk::DeviceQueueCreateInfo device_queue_create_info {
-			.queueFamilyIndex = device_suitableness.graphics_queue_index,
-			.queueCount = 1,
-			.pQueuePriorities = &priority,
-		};
-		vk::StructureChain<
-			vk::PhysicalDeviceFeatures2,
-			vk::PhysicalDeviceVulkan11Features,
-			vk::PhysicalDeviceVulkan13Features,
-			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
-			feature_chain {
-				{.features = {.samplerAnisotropy = vk::True}},
-				{.shaderDrawParameters = true},
-				{.synchronization2 = true, .dynamicRendering = true},
-				{.extendedDynamicState = true},
-			};
-
-		vk::DeviceCreateInfo device_create_info {
-			.pNext = &feature_chain.get<vk::PhysicalDeviceFeatures2>(),
-			.queueCreateInfoCount = 1,
-			.pQueueCreateInfos = &device_queue_create_info,
-			.enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size()),
-			.ppEnabledExtensionNames = required_device_extensions.data(),
-		};
-
-		device = vk::raii::Device(physical_device, device_create_info);
-		graphics_queue = vk::raii::Queue(device, device_suitableness.graphics_queue_index, 0);
-		present_queue = vk::raii::Queue(device, device_suitableness.present_queue_index, 0);
+		device.init(instance);
 	}
 
 	void create_swapchain() {
-		auto surface_capabilities = physical_device.getSurfaceCapabilitiesKHR(surface);
-		std::vector<vk::SurfaceFormatKHR> available_formats = physical_device.getSurfaceFormatsKHR(
-			surface
-		);
+		auto surface_capabilities = physical_device.get_surface_capabilities();
+		std::vector<vk::SurfaceFormatKHR> available_formats = physical_device.get_surface_formats();
 		std::vector<vk::PresentModeKHR> available_present_mode =
-			physical_device.getSurfacePresentModesKHR(surface);
+			physical_device.get_surface_present_modes();
 
 		swapchain_surface_format = choose_swap_surface_format(available_formats);
 		swapchain_extent = choose_swap_extent(surface_capabilities);
@@ -546,7 +263,7 @@ private:
 
 		vk::SwapchainCreateInfoKHR swapchain_create_info {
 			.flags = vk::SwapchainCreateFlagsKHR(),
-			.surface = surface,
+			.surface = physical_device.get_surface(),
 			.minImageCount = min_image_count,
 			.imageFormat = swapchain_surface_format.format,
 			.imageColorSpace = swapchain_surface_format.colorSpace,
@@ -557,14 +274,15 @@ private:
 			.preTransform = surface_capabilities.currentTransform,
 			.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
 			.presentMode = choose_present_mode(available_present_mode),
-			.clipped = true,
+			.clipped = vk::True,
 			.oldSwapchain = nullptr,
 		};
 
-		if (device_suitableness.graphics_queue_index != device_suitableness.present_queue_index) {
+		if (physical_device.get_graphics_queue_index() !=
+			physical_device.get_present_queue_index()) {
 			std::array<uint32_t, 2> indices {
-				device_suitableness.graphics_queue_index,
-				device_suitableness.present_queue_index
+				physical_device.get_graphics_queue_index(),
+				physical_device.get_present_queue_index()
 			};
 
 			swapchain_create_info.imageSharingMode = vk::SharingMode::eConcurrent;
@@ -576,7 +294,7 @@ private:
 			swapchain_create_info.pQueueFamilyIndices = nullptr;
 		}
 
-		swapchain = vk::raii::SwapchainKHR(device, swapchain_create_info);
+		swapchain = vk::raii::SwapchainKHR(device.get_device(), swapchain_create_info);
 		swapchain_images = swapchain.getImages();
 	}
 
@@ -642,7 +360,7 @@ private:
 				.layerCount = 1,
 			}
 		};
-		return vk::raii::ImageView(device, view_info);
+		return vk::raii::ImageView(device.get_device(), view_info);
 	}
 
 	void create_image_views() {
@@ -681,12 +399,12 @@ private:
 			.pBindings = bindings.data(),
 		};
 
-		descriptor_set_layout = vk::raii::DescriptorSetLayout(device, layout_info);
+		descriptor_set_layout = vk::raii::DescriptorSetLayout(device.get_device(), layout_info);
 	}
 
 	void create_graphics_pipeline() {
 		auto shader_code_result = read_shader_file("shaders/slang.spv");
-		if (!shader_code_result.has_value()) {
+		if (!shader_code_result) {
 			throw std::runtime_error(shader_code_result.error());
 		}
 		auto shader_code = shader_code_result.value();
@@ -773,14 +491,17 @@ private:
 			.pushConstantRangeCount = 0,
 		};
 
-		pipeline_layout = vk::raii::PipelineLayout(device, pipeline_layout_info);
+		pipeline_layout = vk::raii::PipelineLayout(device.get_device(), pipeline_layout_info);
 
-		auto depth_format = find_depth_format();
+		auto depth_format = physical_device.get_depth_format();
+		if (!depth_format) {
+			throw std::runtime_error(depth_format.error());
+		}
 
 		vk::PipelineRenderingCreateInfo pipeline_rendering_info {
 			.colorAttachmentCount = 1,
 			.pColorAttachmentFormats = &swapchain_surface_format.format,
-			.depthAttachmentFormat = depth_format,
+			.depthAttachmentFormat = depth_format.value(),
 		};
 
 		vk::GraphicsPipelineCreateInfo graphics_pipeline_info {
@@ -799,7 +520,8 @@ private:
 			.renderPass = nullptr,
 		};
 
-		graphics_pipeline = vk::raii::Pipeline(device, nullptr, graphics_pipeline_info);
+		graphics_pipeline =
+			vk::raii::Pipeline(device.get_device(), nullptr, graphics_pipeline_info);
 	}
 
 	[[nodiscard]] vk::raii::ShaderModule create_shader_module(const std::vector<char> &code) const {
@@ -808,48 +530,16 @@ private:
 			.pCode = reinterpret_cast<const uint32_t *>(code.data()),
 		};
 
-		return vk::raii::ShaderModule(device, shader_module_create_info);
+		return vk::raii::ShaderModule(device.get_device(), shader_module_create_info);
 	}
 
 	void create_command_pool() {
 		vk::CommandPoolCreateInfo pool_info {
 			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-			.queueFamilyIndex = device_suitableness.graphics_queue_index,
+			.queueFamilyIndex = physical_device.get_graphics_queue_index(),
 		};
 
-		command_pool = vk::raii::CommandPool(device, pool_info);
-	}
-
-	vk::Format find_supported_format(
-		const std::vector<vk::Format> &formats,
-		vk::ImageTiling tiling,
-		vk::FormatFeatureFlags features
-	) {
-		for (const auto format : formats) {
-			vk::FormatProperties properties = physical_device.getFormatProperties(format);
-			if (tiling == vk::ImageTiling::eLinear &&
-				(properties.linearTilingFeatures & features) == features) {
-				return format;
-			}
-			if (tiling == vk::ImageTiling::eOptimal &&
-				(properties.optimalTilingFeatures & features) == features) {
-				return format;
-			}
-		}
-
-		throw std::runtime_error("Failed to find supported format");
-	}
-
-	vk::Format find_depth_format() {
-		return find_supported_format(
-			{
-				vk::Format::eD32Sfloat,
-				vk::Format::eD32SfloatS8Uint,
-				vk::Format::eD24UnormS8Uint,
-			},
-			vk::ImageTiling::eOptimal,
-			vk::FormatFeatureFlagBits::eDepthStencilAttachment
-		);
+		command_pool = vk::raii::CommandPool(device.get_device(), pool_info);
 	}
 
 	bool has_stencil_component(vk::Format format) {
@@ -857,20 +547,27 @@ private:
 	}
 
 	void create_depth_resources() {
-		vk::Format depth_format = find_depth_format();
+		Result<vk::Format> depth_format = physical_device.get_depth_format();
+		if (!depth_format) {
+			throw std::runtime_error(depth_format.error());
+		}
 		create_image(
 			swapchain_extent.width,
 			swapchain_extent.height,
 			1,
-			depth_format,
+			depth_format.value(),
 			vk::ImageTiling::eOptimal,
 			vk::ImageUsageFlagBits::eDepthStencilAttachment,
 			vk::MemoryPropertyFlagBits::eDeviceLocal,
 			depth_image,
 			depth_memory
 		);
-		depth_image_view =
-			create_image_view(depth_image, depth_format, vk::ImageAspectFlagBits::eDepth, 1);
+		depth_image_view = create_image_view(
+			depth_image,
+			depth_format.value(),
+			vk::ImageAspectFlagBits::eDepth,
+			1
+		);
 	}
 
 	void create_texture_image() {
@@ -886,7 +583,7 @@ private:
 		vk::DeviceSize image_size = image_data.get_size();
 
 		tramogi::graphics::StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(physical_device, device, image_size);
+		auto result = staging_buffer.init(device, image_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1055,7 +752,8 @@ private:
 	}
 
 	void create_texture_sampler() {
-		vk::PhysicalDeviceProperties properties = physical_device.getProperties();
+		vk::PhysicalDeviceProperties properties =
+			physical_device.get_physical_device().getProperties();
 		vk::SamplerCreateInfo sampler_info {
 			.magFilter = vk::Filter::eLinear,
 			.minFilter = vk::Filter::eLinear,
@@ -1069,7 +767,7 @@ private:
 			.compareEnable = vk::False,
 			.compareOp = vk::CompareOp::eAlways,
 		};
-		texture_sampler = vk::raii::Sampler(device, sampler_info);
+		texture_sampler = vk::raii::Sampler(device.get_device(), sampler_info);
 	}
 
 	void create_image(
@@ -1095,7 +793,7 @@ private:
 			.sharingMode = vk::SharingMode::eExclusive,
 		};
 
-		image = vk::raii::Image(device, image_info);
+		image = vk::raii::Image(device.get_device(), image_info);
 
 		vk::MemoryRequirements memory_requirements = image.getMemoryRequirements();
 		vk::MemoryAllocateInfo allocate_info {
@@ -1103,7 +801,7 @@ private:
 			.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits, properties),
 		};
 
-		image_memory = vk::raii::DeviceMemory(device, allocate_info);
+		image_memory = vk::raii::DeviceMemory(device.get_device(), allocate_info);
 		image.bindMemory(image_memory, 0);
 	}
 
@@ -1115,7 +813,7 @@ private:
 		};
 
 		vk::raii::CommandBuffer command_buffer = std::move(
-			device.allocateCommandBuffers(allocate_info).front()
+			device.get_device().allocateCommandBuffers(allocate_info).front()
 		);
 
 		vk::CommandBufferBeginInfo begin_info {
@@ -1134,8 +832,8 @@ private:
 			.pCommandBuffers = &*command_buffer,
 		};
 
-		graphics_queue.submit(submit_info, nullptr);
-		graphics_queue.waitIdle();
+		device.submit_graphics(submit_info);
+		device.wait_graphics_queue();
 	}
 
 	void create_command_buffers() {
@@ -1145,7 +843,7 @@ private:
 			.commandBufferCount = MAX_FRAMES_IN_FLIGHT,
 		};
 
-		command_buffers = vk::raii::CommandBuffers(device, allocateInfo);
+		command_buffers = vk::raii::CommandBuffers(device.get_device(), allocateInfo);
 	}
 
 	void load_model() {
@@ -1160,7 +858,7 @@ private:
 		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
 		tramogi::graphics::StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(physical_device, device, buffer_size);
+		auto result = staging_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1168,7 +866,7 @@ private:
 		staging_buffer.upload_data(model.get_vertices().data());
 		staging_buffer.unmap();
 
-		result = vertex_buffer.init(physical_device, device, buffer_size);
+		result = vertex_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1180,7 +878,7 @@ private:
 		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
 
 		tramogi::graphics::StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(physical_device, device, buffer_size);
+		auto result = staging_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1188,7 +886,7 @@ private:
 		staging_buffer.upload_data(model.get_indices().data());
 		staging_buffer.unmap();
 
-		result = index_buffer.init(physical_device, device, buffer_size);
+		result = index_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1201,7 +899,7 @@ private:
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
 			tramogi::graphics::UniformBuffer ubo;
-			auto result = ubo.init(physical_device, device, buffer_size);
+			auto result = ubo.init(device, buffer_size);
 			if (!result) {
 				throw std::runtime_error(result.error());
 			}
@@ -1230,7 +928,7 @@ private:
 			.pPoolSizes = pool_sizes.data(),
 		};
 
-		descriptor_pool = vk::raii::DescriptorPool(device, pool_info);
+		descriptor_pool = vk::raii::DescriptorPool(device.get_device(), pool_info);
 	}
 
 	void create_descriptor_sets() {
@@ -1243,7 +941,7 @@ private:
 			.pSetLayouts = layouts.data(),
 		};
 
-		descriptor_sets = device.allocateDescriptorSets(allocate_info);
+		descriptor_sets = device.get_device().allocateDescriptorSets(allocate_info);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DescriptorBufferInfo buffer_info {
@@ -1274,7 +972,7 @@ private:
 					.pImageInfo = &image_info,
 				},
 			};
-			device.updateDescriptorSets(descriptor_writes, {});
+			device.get_device().updateDescriptorSets(descriptor_writes, {});
 		}
 	}
 
@@ -1316,7 +1014,7 @@ private:
 	}
 
 	uint32_t find_memory_type(uint32_t type_filter, vk::MemoryPropertyFlags properties) {
-		auto memory_properties = physical_device.getMemoryProperties();
+		auto memory_properties = physical_device.get_memory_properties();
 		for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
 			if (type_filter & (1 << i) &&
 				(memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -1512,31 +1210,13 @@ private:
 		command_buffers[current_frame].end();
 	}
 
-	void create_sync_objects() {
-		present_complete_semaphores.clear();
-		render_finished_semaphores.clear();
-		draw_fences.clear();
-
-		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			present_complete_semaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-			render_finished_semaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-			draw_fences.emplace_back(
-				device,
-				vk::FenceCreateInfo {.flags = vk::FenceCreateFlagBits::eSignaled}
-			);
-		}
-	}
-
-	void draw_frame() {
-		device.waitIdle();
-		while (vk::Result::eTimeout ==
-			   device.waitForFences(*draw_fences[current_frame], vk::True, UINT64_MAX))
-			;
+	void draw_frame(double delta) {
+		device.wait_idle(current_frame);
 
 		try {
 			auto [result, image_index] = swapchain.acquireNextImage(
 				UINT64_MAX,
-				*present_complete_semaphores[current_frame],
+				*device.get_present_semaphore(current_frame),
 				nullptr
 			);
 
@@ -1551,36 +1231,35 @@ private:
 
 			command_buffers[current_frame].reset();
 			record_command_buffer(image_index);
-			device.resetFences(*draw_fences[current_frame]);
+			device.reset_fence(current_frame);
 
-			update_uniform_buffer(current_frame);
+			update_uniform_buffer(current_frame, delta);
 
 			vk::PipelineStageFlags wait_destination_stage_mask(
 				vk::PipelineStageFlagBits::eColorAttachmentOutput
 			);
 			const vk::SubmitInfo submit_info {
 				.waitSemaphoreCount = 1,
-				.pWaitSemaphores = &*present_complete_semaphores[current_frame],
+				.pWaitSemaphores = &*device.get_present_semaphore(current_frame),
 				.pWaitDstStageMask = &wait_destination_stage_mask,
 				.commandBufferCount = 1,
 				.pCommandBuffers = &*command_buffers[current_frame],
 				.signalSemaphoreCount = 1,
-				.pSignalSemaphores = &*render_finished_semaphores[current_frame],
+				.pSignalSemaphores = &*device.get_render_semaphore(current_frame),
 			};
 
-			graphics_queue.submit(submit_info, draw_fences[current_frame]);
+			device.submit_graphics(submit_info, current_frame, true);
 
 			vk::PresentInfoKHR present_info {
 				.waitSemaphoreCount = 1,
-				.pWaitSemaphores = &*render_finished_semaphores[current_frame],
+				.pWaitSemaphores = &*device.get_render_semaphore(current_frame),
 				.swapchainCount = 1,
 				.pSwapchains = &*swapchain,
 				.pImageIndices = &image_index,
 			};
 
-			result = present_queue.presentKHR(present_info);
-			if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR ||
-				window.resized) {
+			auto present_result = device.present(present_info);
+			if (!present_result || window.resized) {
 				window.resized = false;
 				recreate_swapchain();
 			} else if (result != vk::Result::eSuccess) {
@@ -1598,7 +1277,8 @@ private:
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void update_uniform_buffer(uint32_t current_image) {
+	void update_uniform_buffer(uint32_t current_image, double delta) {
+		static glm::mat4 pos(1.0f);
 		static auto start_time = std::chrono::high_resolution_clock::now();
 
 		auto current_time = std::chrono::high_resolution_clock::now();
@@ -1607,11 +1287,28 @@ private:
 		)
 						 .count();
 
+		constexpr float speed = 3.0f;
+
+		if (window.get_w()) {
+			pos = glm::translate(pos, glm::vec3(0.0f, -speed * delta, 0.0f));
+		}
+		if (window.get_a()) {
+			pos = glm::translate(pos, glm::vec3(speed * delta, 0.0f, 0.0f));
+		}
+		if (window.get_s()) {
+			pos = glm::translate(pos, glm::vec3(0.0f, speed * delta, 0.0f));
+		}
+		if (window.get_d()) {
+			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
+		}
+
 		UniformBufferObject ubo;
-		ubo.model =
-			glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.model = glm::scale(
+			glm::rotate(pos, time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			glm::vec3(2.0f)
+		);
 		ubo.view = glm::lookAt(
-			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 5.0f, 1.0f),
 			glm::vec3(0.0f, 0.0f, 0.0f),
 			glm::vec3(0.0f, 0.0f, 1.0f)
 		);
@@ -1639,10 +1336,7 @@ private:
 			window.wait_events();
 		}
 
-		device.waitIdle();
-		while (vk::Result::eTimeout ==
-			   device.waitForFences(*draw_fences[current_frame], vk::True, UINT64_MAX))
-			;
+		device.wait_idle(current_frame);
 
 		cleanup_swapchain();
 
@@ -1650,23 +1344,7 @@ private:
 		create_image_views();
 		create_depth_resources();
 
-		DLOG("Resized to: {}x{}", dimension.width, dimension.height);
-	}
-
-	static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
-		vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-		vk::DebugUtilsMessageTypeFlagsEXT type,
-		const vk::DebugUtilsMessengerCallbackDataEXT *p_callback_data,
-		void *
-	) {
-		std::println(
-			stderr,
-			"Validation layer: type {} [{}] message: {}",
-			vk::to_string(severity),
-			vk::to_string(type),
-			p_callback_data->pMessage
-		);
-		return vk::False;
+		DLOG("Swapchain resized to {}x{}", dimension.width, dimension.height);
 	}
 };
 

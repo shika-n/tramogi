@@ -3,7 +3,7 @@
 .venv/
 __pycache__/
 build/
-shaders/
+/shaders/
 
 CMakeUserPresets.json
 libgcc_s_seh-1.dll

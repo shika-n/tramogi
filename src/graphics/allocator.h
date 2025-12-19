@@ -7,11 +7,12 @@ class PhysicalDevice;
 class MemoryRequirements;
 namespace raii {
 class DeviceMemory;
-class Device;
 } // namespace raii
 } // namespace vk
 
 namespace tramogi::graphics {
+
+class Device;
 
 enum class MemoryType {
 	Host,
@@ -20,8 +21,7 @@ enum class MemoryType {
 
 // TODO: Create an allocator and use offsets
 [[nodiscard]] core::Result<vk::raii::DeviceMemory> allocate_memory(
-	vk::PhysicalDevice physical_device,
-	const vk::raii::Device &device,
+	const Device &device,
 	vk::MemoryRequirements memory_requirements,
 	MemoryType memory_type
 );

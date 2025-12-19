@@ -28,7 +28,9 @@ Sampler2D texture;
 
 [shader("fragment")]
 float4 frag_main(VertexOutput vertex_in) : SV_Target {
-	return texture.Sample(vertex_in.tex_coord);
+	float z_fog =
+		clamp(1.0 - (((vertex_in.position.z / vertex_in.position.w) / 10) - 0.5) * 2.0, 0.0, 1.0);
+	return texture.Sample(vertex_in.tex_coord) * z_fog;
 }
 
 

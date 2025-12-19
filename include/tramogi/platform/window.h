@@ -32,7 +32,12 @@ public:
 	void poll_events();
 	void wait_events();
 
-	bool get_f3(); // TODO: TEMPORARY, this should be split into input class
+	// TODO: TEMPORARY, this should be split into input class
+	bool get_f3();
+	bool get_w();
+	bool get_a();
+	bool get_s();
+	bool get_d();
 
 	std::vector<const char *> get_required_extensions();
 	core::Result<vk::SurfaceKHR> create_surface(const vk::Instance &instance);
