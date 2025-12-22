@@ -3,14 +3,14 @@
 A game engine project with goals I don't think I can achieve.
 
 # Building
-## Linux (Docker/Podman)
+## Docker/Podman
 ```bash
-python build.py prepare && python build.py build --generate
+python build.py prepare --container && python build.py build --container
 ```
 
-## Windows
+## Linux/Windows (On host)
 ```
-python build.py prepare --host && python build.py --host --generate
+python build.py prepare && python build.py build
 ```
 
 # Running
