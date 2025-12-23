@@ -3,6 +3,7 @@
 #include "../logging.h"
 #include "tramogi/core/errors.h"
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #define GLFW_INCLUDE_VULKAN
@@ -30,6 +31,21 @@ bool Window::init(uint32_t width, uint32_t height, const char *title) {
 	return window != nullptr;
 }
 
+void Window::set_key_callback(std::function<void(int, bool)> callback) {
+	key_callback = callback;
+	glfwSetKeyCallback(window, [](GLFWwindow *window, int, int scancode, int action, int) {
+		if (action == GLFW_REPEAT) {
+			return;
+		}
+		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
+		instance->key_callback(scancode, action == GLFW_PRESS);
+	});
+}
+
+void Window::request_close() {
+	glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+
 bool Window::should_close() {
 	return glfwWindowShouldClose(window);
 }
@@ -40,22 +56,6 @@ void Window::poll_events() {
 
 void Window::wait_events() {
 	glfwWaitEvents();
-}
-
-bool Window::get_f3() {
-	return glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS;
-}
-bool Window::get_w() {
-	return glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
-}
-bool Window::get_a() {
-	return glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
-}
-bool Window::get_s() {
-	return glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
-}
-bool Window::get_d() {
-	return glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
 }
 
 std::vector<const char *> Window::get_required_extensions() {

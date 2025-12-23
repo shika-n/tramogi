@@ -1,4 +1,4 @@
-#include "tramogi/core/model.h"
+#include "tramogi/core/io/model.h"
 
 #include <stdint.h>
 #include <tiny_obj_loader.h>
@@ -6,7 +6,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 
-#include "../logging.h"
+#include "../../logging.h"
 
 namespace std {
 

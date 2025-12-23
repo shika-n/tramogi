@@ -1,4 +1,4 @@
-#include "tramogi/core/image_data.h"
+#include "tramogi/core/io/image_data.h"
 #include <cstdint>
 
 #define STB_IMAGE_IMPLEMENTATION

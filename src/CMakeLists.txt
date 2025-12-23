@@ -1,5 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(graphics)
+add_subdirectory(input)
 add_subdirectory(platform)
 
 add_executable(
@@ -22,6 +23,7 @@ target_link_libraries(
 
 		${PROJECT_NAME}-core-file
 		${PROJECT_NAME}-graphics
+		${PROJECT_NAME}-input
 		${PROJECT_NAME}-platform
 )
 

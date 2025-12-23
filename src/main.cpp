@@ -8,6 +8,7 @@
 #include <exception>
 #include <expected>
 #include <format>
+#include <functional>
 #include <limits>
 #include <print>
 #include <stdexcept>
@@ -43,9 +44,10 @@
 #include "graphics/physical_device.h"
 #include "graphics/surface.h"
 #include "logging.h"
-#include "tramogi/core/file.h"
-#include "tramogi/core/image_data.h"
-#include "tramogi/core/model.h"
+#include "tramogi/core/input/keyboard.h"
+#include "tramogi/core/io/file.h"
+#include "tramogi/core/io/image_data.h"
+#include "tramogi/core/io/model.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/platform/window.h"
 
@@ -134,16 +136,19 @@ private:
 	vk::raii::DeviceMemory depth_memory = nullptr;
 	vk::raii::ImageView depth_image_view = nullptr;
 
-	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
-
 	uint32_t current_frame = 0;
 
 	tramogi::core::Model model;
+
+	tramogi::input::Keyboard input;
 
 	void init_window() {
 		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
 			throw std::runtime_error("Failed to initialize GLFW");
 		}
+		window.set_key_callback([this](int scancode, bool is_pressed) {
+			input.set_key(scancode, is_pressed);
+		});
 	}
 
 	void init_vulkan() {
@@ -173,7 +178,6 @@ private:
 		auto last_time = std::chrono::high_resolution_clock().now();
 		uint32_t frames = 0;
 		double timer = 0;
-		bool f3_pressed = false;
 		bool print_fps = false;
 
 		while (!window.should_close()) {
@@ -183,14 +187,13 @@ private:
 				1000000000.0;
 
 			window.poll_events();
-			if (window.get_f3()) {
-				if (!f3_pressed) {
-					print_fps = !print_fps;
-					DLOG("Print FPS: {}", print_fps);
-					f3_pressed = true;
-				}
-			} else {
-				f3_pressed = false;
+			if (input.is_pressed(tramogi::input::Key::P)) {
+				print_fps = !print_fps;
+				DLOG("Print FPS: {}", print_fps);
+				input.consume_key(tramogi::input::Key::P);
+			}
+			if (input.is_pressed(tramogi::input::Key::Q)) {
+				window.request_close();
 			}
 
 			draw_frame(delta);
@@ -1289,16 +1292,16 @@ private:
 
 		constexpr float speed = 3.0f;
 
-		if (window.get_w()) {
+		if (input.is_pressed(tramogi::input::Key::W)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, -speed * delta, 0.0f));
 		}
-		if (window.get_a()) {
+		if (input.is_pressed(tramogi::input::Key::A)) {
 			pos = glm::translate(pos, glm::vec3(speed * delta, 0.0f, 0.0f));
 		}
-		if (window.get_s()) {
+		if (input.is_pressed(tramogi::input::Key::S)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, speed * delta, 0.0f));
 		}
-		if (window.get_d()) {
+		if (input.is_pressed(tramogi::input::Key::D)) {
 			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
 		}
 
