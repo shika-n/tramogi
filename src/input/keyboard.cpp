@@ -1,4 +1,4 @@
-#include "tramogi/core/input/keyboard.h"
+#include "tramogi/input/keyboard.h"
 
 namespace tramogi::input {
 

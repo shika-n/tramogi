@@ -44,11 +44,11 @@
 #include "graphics/physical_device.h"
 #include "graphics/surface.h"
 #include "logging.h"
-#include "tramogi/core/input/keyboard.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/io/model.h"
 #include "tramogi/graphics/buffer.h"
+#include "tramogi/input/keyboard.h"
 #include "tramogi/platform/window.h"
 
 constexpr uint32_t WIDTH = 1280;
