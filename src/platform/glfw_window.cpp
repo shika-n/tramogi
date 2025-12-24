@@ -1,6 +1,6 @@
+#include "tramogi/core/logging/logging.h"
 #include "tramogi/platform/window.h"
 
-#include "../logging.h"
 #include "tramogi/core/errors.h"
 #include <cstdint>
 #include <functional>
@@ -14,6 +14,7 @@ namespace tramogi::platform {
 
 using core::Error;
 using core::Result;
+using core::logging::debug_log;
 
 bool Window::init(uint32_t width, uint32_t height, const char *title) {
 	// TODO: Check if llibdecor issue is solved. See: https://github.com/glfw/glfw/issues/2789
@@ -90,7 +91,7 @@ void Window::resize_callback(
 ) {
 	auto instance = reinterpret_cast<Window *>(glfwGetWindowUserPointer(window));
 	instance->resized = true;
-	DLOG("Window resized to {}x{}", width, height);
+	debug_log("Window resized to {}x{}", width, height);
 }
 
 } // namespace tramogi::platform

@@ -1,6 +1,6 @@
 #include "instance.h"
-#include "../logging.h"
 #include "tramogi/core/errors.h"
+#include "tramogi/core/logging/logging.h"
 #include "vulkan/vulkan.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -16,6 +16,7 @@ namespace tramogi::graphics {
 
 using core::Error;
 using core::Result;
+using core::logging::debug_log;
 
 constexpr std::array<const char *, 1> validation_layers = {
 	"VK_LAYER_KHRONOS_validation",
@@ -45,7 +46,7 @@ bool check_extensions(
 	bool is_requirements_met = true;
 	std::vector<vk::ExtensionProperties> available_extensions =
 		context.enumerateInstanceExtensionProperties();
-	DLOG("Required Extensions:", required_extensions.size());
+	debug_log("Required Extensions:", required_extensions.size());
 	for (auto required_ext : required_extensions) {
 		bool is_available = !std::ranges::none_of(
 			available_extensions,
@@ -54,7 +55,7 @@ bool check_extensions(
 			}
 		);
 		is_requirements_met = is_requirements_met && is_available;
-		DLOG("  - {}: {}", required_ext, is_available ? "OK" : "NO");
+		debug_log("  - {}: {}", required_ext, is_available ? "OK" : "NO");
 	}
 	return is_requirements_met;
 }
@@ -62,7 +63,7 @@ bool check_extensions(
 bool check_layers(const vk::raii::Context &context, std::vector<const char *> required_layers) {
 	bool is_requirements_met = true;
 	std::vector<vk::LayerProperties> available_layers = context.enumerateInstanceLayerProperties();
-	DLOG("Required Layers:");
+	debug_log("Required Layers:");
 	for (auto required_layer : required_layers) {
 		bool is_available = !std::ranges::none_of(
 			available_layers,
@@ -71,7 +72,7 @@ bool check_layers(const vk::raii::Context &context, std::vector<const char *> re
 			}
 		);
 		is_requirements_met = is_requirements_met && is_available;
-		DLOG("  - {}: {}", required_layer, is_available ? "OK" : "NO");
+		debug_log("  - {}: {}", required_layer, is_available ? "OK" : "NO");
 	}
 	return is_requirements_met;
 }
@@ -82,7 +83,7 @@ static VKAPI_ATTR vk::Bool32 VKAPI_CALL debug_callback(
 	const vk::DebugUtilsMessengerCallbackDataEXT *data,
 	void *
 ) {
-	DLOG(
+	debug_log(
 		"Validation layer: [{}] {}: {}",
 		vk::to_string(severity),
 		vk::to_string(type),

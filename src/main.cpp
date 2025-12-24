@@ -41,10 +41,10 @@
 #include "graphics/instance.h"
 #include "graphics/physical_device.h"
 #include "graphics/surface.h"
-#include "logging.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/io/model.h"
+#include "tramogi/core/logging/logging.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/input/keyboard.h"
 #include "tramogi/platform/window.h"
@@ -58,6 +58,8 @@ constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
 using namespace tramogi::core;
 using namespace tramogi::platform;
+
+using namespace tramogi::core::logging;
 
 static vk::VertexInputBindingDescription get_binding_description() {
 	return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
@@ -187,7 +189,7 @@ private:
 			window.poll_events();
 			if (input.is_pressed(tramogi::input::Key::P)) {
 				print_fps = !print_fps;
-				DLOG("Print FPS: {}", print_fps);
+				debug_log("Print FPS: {}", print_fps);
 				input.consume_key(tramogi::input::Key::P);
 			}
 			if (input.is_pressed(tramogi::input::Key::Q)) {
@@ -201,7 +203,7 @@ private:
 
 			while (timer >= 1) {
 				if (print_fps) {
-					DLOG("{} FPS ({:.2f}ms)", frames, 1000.0 / frames);
+					debug_log("{} FPS ({:.2f}ms)", frames, 1000.0 / frames);
 				}
 				frames = 0;
 				timer -= 1;
@@ -850,9 +852,9 @@ private:
 	void load_model() {
 		model.load_from_obj_file(MODEL_PATH.c_str());
 
-		DLOG("Loading model done!");
-		DLOG("  Vertices: {}", model.get_vertices().size());
-		DLOG("  Indices: {}", model.get_indices().size());
+		debug_log("Loading model done!");
+		debug_log("  Vertices: {}", model.get_vertices().size());
+		debug_log("  Indices: {}", model.get_indices().size());
 	}
 
 	void create_vertex_buffer() {
@@ -1345,12 +1347,12 @@ private:
 		create_image_views();
 		create_depth_resources();
 
-		DLOG("Swapchain resized to {}x{}", dimension.width, dimension.height);
+		debug_log("Swapchain resized to {}x{}", dimension.width, dimension.height);
 	}
 };
 
 int main() {
-	DLOG("Running in DEBUG mode");
+	debug_log("Running in DEBUG mode");
 
 	ProjectSkyHigh skyhigh;
 
@@ -1364,6 +1366,6 @@ int main() {
 		return EXIT_FAILURE;
 	}
 
-	DLOG("Exited successfully");
+	debug_log("Exited successfully");
 	return EXIT_SUCCESS;
 }

@@ -13,8 +13,9 @@ add_library(
 target_link_libraries(
 	${PROJECT_NAME}-graphics
 	PRIVATE
-		stdc++exp
 		Vulkan::Headers
+
+		${PROJECT_NAME}-core
 )
 
 target_compile_definitions(

@@ -10,8 +10,9 @@ target_link_libraries(
 	${PROJECT_NAME}-core-file
 	PRIVATE
 		glm::glm
-		stdc++exp
 		tinyobjloader
+
+		${PROJECT_NAME}-core
 )
 
 target_include_directories(

@@ -1,8 +1,8 @@
 #include "physical_device.h"
-#include "../logging.h"
 #include "instance.h"
 #include "surface.h"
 #include "tramogi/core/errors.h"
+#include "tramogi/core/logging/logging.h"
 #include <algorithm>
 #include <array>
 #include <functional>
@@ -18,6 +18,7 @@ namespace tramogi::graphics {
 
 using core::Error;
 using core::Result;
+using core::logging::debug_log;
 
 struct PhysicalDevice::Impl {
 	vk::raii::PhysicalDevice physical_device = nullptr;
@@ -96,20 +97,20 @@ DeviceSuitableness get_device_suitableness(
 		is_suitable = false;
 	}
 
-	DLOG("Physical Device: {}", std::string(property.deviceName));
-	DLOG("  Vulkan API v1.3 Support: {}", is_api_supported);
-	DLOG("  Extensions:");
+	debug_log("Physical Device: {}", std::string(property.deviceName));
+	debug_log("  Vulkan API v1.3 Support: {}", is_api_supported);
+	debug_log("  Extensions:");
 	for ([[maybe_unused]] auto entry : extension_support_map) {
-		DLOG("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
+		debug_log("    - {}: {}", entry.first, entry.second ? "Yes" : "No");
 	}
-	DLOG("  Anisotropy Support: {}", anisotropy_support);
-	DLOG("  Queue:");
-	DLOG(
+	debug_log("  Anisotropy Support: {}", anisotropy_support);
+	debug_log("  Queue:");
+	debug_log(
 		"    Graphics Queue Index: {}",
 		graphics_queue_index == queue_families.size() ? "Not Found"
 													  : std::to_string(graphics_queue_index)
 	);
-	DLOG(
+	debug_log(
 		"    Present Queue Index: {}",
 		present_queue_index == queue_families.size() ? "Not Found"
 													 : std::to_string(present_queue_index)
@@ -173,7 +174,7 @@ Result<> PhysicalDevice::init(const Instance &instance, const vk::SurfaceKHR &su
 		return Error("No suitable device found");
 	}
 
-	DLOG("Using: {}", impl->physical_device.getProperties().deviceName.data());
+	debug_log("Using: {}", impl->physical_device.getProperties().deviceName.data());
 
 	return {};
 }

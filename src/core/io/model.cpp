@@ -6,7 +6,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 
-#include "../../logging.h"
+#include "tramogi/core/logging/logging.h"
 
 namespace std {
 
@@ -31,7 +31,7 @@ bool Model::load_from_obj_file(const char *filepath) {
 	std::string warn;
 	std::string err;
 	bool res = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filepath);
-	DLOG("{}", warn + err);
+	logging::debug_log("{}", warn + err);
 
 	std::unordered_map<Vertex, uint32_t> unique_vertices;
 	for (const auto &shape : shapes) {

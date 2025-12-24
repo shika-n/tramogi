@@ -17,10 +17,10 @@ set_target_properties(
 target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
-		stdc++exp
 		glm::glm
 		Vulkan::Headers
 
+		${PROJECT_NAME}-core
 		${PROJECT_NAME}-core-file
 		${PROJECT_NAME}-graphics
 		${PROJECT_NAME}-input

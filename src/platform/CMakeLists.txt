@@ -7,7 +7,8 @@ add_library(
 target_link_libraries(
 	${PROJECT_NAME}-platform
 	PRIVATE
-		stdc++exp
 		glfw
 		Vulkan::Headers
+
+		${PROJECT_NAME}-core
 )
