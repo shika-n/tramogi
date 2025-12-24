@@ -115,7 +115,6 @@ Result<> Device::present(vk::PresentInfoKHR present_info) {
 }
 
 void Device::submit(const CommandBuffer &command_buffer) {
-	DLOG("Submit");
 	vk::SubmitInfo submit_info {
 		.commandBufferCount = 1,
 		.pCommandBuffers = &*command_buffer.get_command_buffer(),
@@ -124,7 +123,6 @@ void Device::submit(const CommandBuffer &command_buffer) {
 	if (command_buffer.get_type() == CommandBufferType::OneTime) {
 		wait_graphics_queue();
 	}
-	DLOG("Submit OK");
 }
 
 CommandBuffer Device::allocate_command_buffer() const {
