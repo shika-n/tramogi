@@ -1,5 +1,4 @@
 #include "device.h"
-#include "../logging.h"
 #include "command_buffer.h"
 #include "dispatch_loader.h"
 #include "instance.h"
