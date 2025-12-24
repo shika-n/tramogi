@@ -1,4 +1,6 @@
 #include "device.h"
+#include "../logging.h"
+#include "command_buffer.h"
 #include "dispatch_loader.h"
 #include "instance.h"
 #include "physical_device.h"
@@ -112,11 +114,24 @@ Result<> Device::present(vk::PresentInfoKHR present_info) {
 	return {};
 }
 
-vk::raii::CommandBuffer Device::allocate_command_buffer() {
-	return std::move(allocate_command_buffer(1).front());
+void Device::submit(const CommandBuffer &command_buffer) {
+	DLOG("Submit");
+	vk::SubmitInfo submit_info {
+		.commandBufferCount = 1,
+		.pCommandBuffers = &*command_buffer.get_command_buffer(),
+	};
+	submit_graphics(submit_info);
+	if (command_buffer.get_type() == CommandBufferType::OneTime) {
+		wait_graphics_queue();
+	}
+	DLOG("Submit OK");
 }
 
-std::vector<vk::raii::CommandBuffer> Device::allocate_command_buffer(uint32_t count) {
+CommandBuffer Device::allocate_command_buffer() const {
+	return std::move(allocate_command_buffers(1).front());
+}
+
+std::vector<CommandBuffer> Device::allocate_command_buffers(uint32_t count) const {
 	assert(count > 0);
 	vk::CommandBufferAllocateInfo allocate_info {
 		.commandPool = impl->command_pool,
@@ -124,7 +139,12 @@ std::vector<vk::raii::CommandBuffer> Device::allocate_command_buffer(uint32_t co
 		.commandBufferCount = count,
 	};
 
-	return impl->device.allocateCommandBuffers(allocate_info);
+	std::vector<CommandBuffer> command_buffers;
+	for (auto &command_buffer : impl->device.allocateCommandBuffers(allocate_info)) {
+		command_buffers.emplace_back(std::move(command_buffer));
+	}
+
+	return command_buffers;
 }
 
 void Device::wait_idle(uint32_t frame_index) const {
@@ -138,7 +158,9 @@ void Device::wait_idle(uint32_t frame_index) const {
 }
 
 void Device::wait_graphics_queue() const {
+	DLOG("Waiting for queue");
 	impl->graphics_queue.waitIdle();
+	DLOG("Waiting for queue OK");
 }
 
 void Device::reset_fence(uint32_t frame_index) {

@@ -36,6 +36,7 @@
 #include <glm/trigonometric.hpp>
 
 #include "graphics/allocator.h"
+#include "graphics/command_buffer.h"
 #include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
 #include "graphics/instance.h"
@@ -57,6 +58,8 @@ const std::string TEXTURE_PATH = "textures/viking_room.png";
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
 using namespace tramogi::core;
+using namespace tramogi::graphics;
+using namespace tramogi::input;
 using namespace tramogi::platform;
 
 using namespace tramogi::core::logging;
@@ -102,9 +105,9 @@ public:
 private:
 	Window window;
 
-	tramogi::graphics::Instance instance;
-	tramogi::graphics::PhysicalDevice physical_device;
-	tramogi::graphics::Device device;
+	Instance instance;
+	PhysicalDevice physical_device;
+	Device device;
 
 	vk::SurfaceFormatKHR swapchain_surface_format {};
 	vk::Extent2D swapchain_extent {};
@@ -116,11 +119,11 @@ private:
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
 	vk::raii::Pipeline graphics_pipeline = nullptr;
 
-	std::vector<vk::raii::CommandBuffer> command_buffers;
+	std::vector<CommandBuffer> command_buffers;
 
-	tramogi::graphics::VertexBuffer vertex_buffer;
-	tramogi::graphics::IndexBuffer index_buffer;
-	std::vector<tramogi::graphics::UniformBuffer> uniform_buffers;
+	VertexBuffer vertex_buffer;
+	IndexBuffer index_buffer;
+	std::vector<UniformBuffer> uniform_buffers;
 
 	vk::raii::DescriptorPool descriptor_pool = nullptr;
 	std::vector<vk::raii::DescriptorSet> descriptor_sets;
@@ -137,9 +140,9 @@ private:
 
 	uint32_t current_frame = 0;
 
-	tramogi::core::Model model;
+	Model model;
 
-	tramogi::input::Keyboard input;
+	Keyboard input;
 
 	void init_window() {
 		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
@@ -185,12 +188,12 @@ private:
 				1000000000.0;
 
 			window.poll_events();
-			if (input.is_pressed(tramogi::input::Key::P)) {
+			if (input.is_pressed(Key::P)) {
 				print_fps = !print_fps;
 				debug_log("Print FPS: {}", print_fps);
 				input.consume_key(tramogi::input::Key::P);
 			}
-			if (input.is_pressed(tramogi::input::Key::Q)) {
+			if (input.is_pressed(Key::Q)) {
 				window.request_close();
 			}
 
@@ -563,7 +566,7 @@ private:
 	}
 
 	void create_texture_image() {
-		tramogi::core::ImageData image_data;
+		ImageData image_data;
 		if (!image_data.load_from_file(TEXTURE_PATH.c_str())) {
 			// TODO: handle missing texture without throwing
 			throw std::runtime_error("Failed to load texture image");
@@ -574,7 +577,7 @@ private:
 		mip_levels = image_data.get_mip_levels();
 		vk::DeviceSize image_size = image_data.get_size();
 
-		tramogi::graphics::StagingBuffer staging_buffer;
+		StagingBuffer staging_buffer;
 		auto result = staging_buffer.init(device, image_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
@@ -619,7 +622,8 @@ private:
 		int32_t texture_height,
 		uint32_t mip_levels
 	) {
-		vk::raii::CommandBuffer command_buffer = begin_single_time_commands();
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
 
 		vk::ImageMemoryBarrier barrier {
 			.srcAccessMask = vk::AccessFlagBits::eTransferWrite,
@@ -647,7 +651,7 @@ private:
 			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 			barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
 
-			command_buffer.pipelineBarrier(
+			cmd.get_command_buffer().pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
 				vk::PipelineStageFlagBits::eTransfer,
 				{},
@@ -686,7 +690,7 @@ private:
 				.dstOffsets = dst_offsets,
 			};
 
-			command_buffer.blitImage(
+			cmd.get_command_buffer().blitImage(
 				image,
 				vk::ImageLayout::eTransferSrcOptimal,
 				image,
@@ -700,7 +704,7 @@ private:
 			barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
 			barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
-			command_buffer.pipelineBarrier(
+			cmd.get_command_buffer().pipelineBarrier(
 				vk::PipelineStageFlagBits::eTransfer,
 				vk::PipelineStageFlagBits::eFragmentShader,
 				{},
@@ -722,7 +726,7 @@ private:
 		barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
 		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
-		command_buffer.pipelineBarrier(
+		cmd.get_command_buffer().pipelineBarrier(
 			vk::PipelineStageFlagBits::eTransfer,
 			vk::PipelineStageFlagBits::eFragmentShader,
 			{},
@@ -731,7 +735,8 @@ private:
 			barrier
 		);
 
-		end_single_time_commands(command_buffer);
+		cmd.end();
+		device.submit(cmd);
 	}
 
 	void create_texture_image_view() {
@@ -797,31 +802,8 @@ private:
 		image.bindMemory(image_memory, 0);
 	}
 
-	vk::raii::CommandBuffer begin_single_time_commands() {
-		vk::raii::CommandBuffer command_buffer = device.allocate_command_buffer();
-
-		vk::CommandBufferBeginInfo begin_info {
-			.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
-		};
-		command_buffer.begin(begin_info);
-
-		return command_buffer;
-	}
-
-	void end_single_time_commands(vk::raii::CommandBuffer &command_buffer) {
-		command_buffer.end();
-
-		vk::SubmitInfo submit_info {
-			.commandBufferCount = 1,
-			.pCommandBuffers = &*command_buffer,
-		};
-
-		device.submit_graphics(submit_info);
-		device.wait_graphics_queue();
-	}
-
 	void create_command_buffers() {
-		command_buffers = device.allocate_command_buffer(MAX_FRAMES_IN_FLIGHT);
+		command_buffers = device.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT);
 	}
 
 	void load_model() {
@@ -835,7 +817,7 @@ private:
 	void create_vertex_buffer() {
 		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
-		tramogi::graphics::StagingBuffer staging_buffer;
+		StagingBuffer staging_buffer;
 		auto result = staging_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
@@ -855,7 +837,7 @@ private:
 	void create_index_buffer() {
 		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
 
-		tramogi::graphics::StagingBuffer staging_buffer;
+		StagingBuffer staging_buffer;
 		auto result = staging_buffer.init(device, buffer_size);
 		if (!result) {
 			throw std::runtime_error(result.error());
@@ -876,7 +858,7 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
-			tramogi::graphics::UniformBuffer ubo;
+			UniformBuffer ubo;
 			auto result = ubo.init(device, buffer_size);
 			if (!result) {
 				throw std::runtime_error(result.error());
@@ -955,8 +937,9 @@ private:
 	}
 
 	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
-		vk::raii::CommandBuffer command_copy_buffer = begin_single_time_commands();
-		command_copy_buffer.copyBuffer(
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
+		cmd.get_command_buffer().copyBuffer(
 			src,
 			dst,
 			vk::BufferCopy {
@@ -965,7 +948,8 @@ private:
 				.size = size,
 			}
 		);
-		end_single_time_commands(command_copy_buffer);
+		cmd.end();
+		device.submit(cmd);
 	}
 
 	void copy_buffer_to_image(
@@ -974,7 +958,8 @@ private:
 		uint32_t width,
 		uint32_t height
 	) {
-		vk::raii::CommandBuffer command_buffer = begin_single_time_commands();
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
 
 		vk::BufferImageCopy region {
 			.bufferOffset = 0,
@@ -985,10 +970,11 @@ private:
 			.imageExtent = {width, height, 1},
 		};
 
-		command_buffer
+		cmd.get_command_buffer()
 			.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, region);
 
-		end_single_time_commands(command_buffer);
+		cmd.end();
+		device.submit(cmd);
 	}
 
 	uint32_t find_memory_type(uint32_t type_filter, vk::MemoryPropertyFlags properties) {
@@ -1009,7 +995,8 @@ private:
 		vk::ImageLayout new_layout,
 		uint32_t mip_levels
 	) {
-		auto command_buffer = begin_single_time_commands();
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
 
 		vk::PipelineStageFlags source_stage;
 		vk::PipelineStageFlags destination_stage;
@@ -1045,9 +1032,11 @@ private:
 			throw std::invalid_argument("Unsupported layout transition");
 		}
 
-		command_buffer.pipelineBarrier(source_stage, destination_stage, {}, {}, nullptr, barrier);
+		cmd.get_command_buffer()
+			.pipelineBarrier(source_stage, destination_stage, {}, {}, nullptr, barrier);
 
-		end_single_time_commands(command_buffer);
+		cmd.end();
+		device.submit(cmd);
 	}
 
 	void transition_image_layout(
@@ -1085,11 +1074,11 @@ private:
 			.pImageMemoryBarriers = &barrier,
 		};
 
-		command_buffers[current_frame].pipelineBarrier2(dependency_info);
+		command_buffers[current_frame].get_command_buffer().pipelineBarrier2(dependency_info);
 	}
 
 	void record_command_buffer(uint32_t image_index) {
-		command_buffers[current_frame].begin({});
+		command_buffers[current_frame].begin();
 
 		transition_image_layout(
 			swapchain_images[image_index],
@@ -1143,26 +1132,33 @@ private:
 			.pDepthAttachment = &depth_attachment_info,
 		};
 
-		command_buffers[current_frame].beginRendering(rendering_info);
+		command_buffers[current_frame].get_command_buffer().beginRendering(rendering_info);
 
-		command_buffers[current_frame].bindPipeline(
+		command_buffers[current_frame].get_command_buffer().bindPipeline(
 			vk::PipelineBindPoint::eGraphics,
 			graphics_pipeline
 		);
-		command_buffers[current_frame].setViewport(
+		command_buffers[current_frame].get_command_buffer().setViewport(
 			0,
 			vk::Viewport(0.0f, 0.0f, swapchain_extent.width, swapchain_extent.height, 0.0f, 1.0f)
 		);
-		command_buffers[current_frame].setScissor(
+		command_buffers[current_frame].get_command_buffer().setScissor(
 			0,
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
 		);
 
-		command_buffers[current_frame].bindVertexBuffers(0, *vertex_buffer.get_buffer(), {0});
-		command_buffers[current_frame]
-			.bindIndexBuffer(*index_buffer.get_buffer(), 0, vk::IndexType::eUint32);
+		command_buffers[current_frame].get_command_buffer().bindVertexBuffers(
+			0,
+			*vertex_buffer.get_buffer(),
+			{0}
+		);
+		command_buffers[current_frame].get_command_buffer().bindIndexBuffer(
+			*index_buffer.get_buffer(),
+			0,
+			vk::IndexType::eUint32
+		);
 
-		command_buffers[current_frame].bindDescriptorSets(
+		command_buffers[current_frame].get_command_buffer().bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
 			pipeline_layout,
 			0,
@@ -1171,8 +1167,10 @@ private:
 		);
 
 		// command_buffers[current_frame].draw(3, 1, 1, 0);
-		command_buffers[current_frame].drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
-		command_buffers[current_frame].endRendering();
+		command_buffers[current_frame]
+			.get_command_buffer()
+			.drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+		command_buffers[current_frame].get_command_buffer().endRendering();
 
 		transition_image_layout(
 			swapchain_images[image_index],
@@ -1207,7 +1205,7 @@ private:
 				throw std::runtime_error("Failed to acquire swapchain image");
 			}
 
-			command_buffers[current_frame].reset();
+			command_buffers[current_frame].get_command_buffer().reset();
 			record_command_buffer(image_index);
 			device.reset_fence(current_frame);
 
@@ -1221,7 +1219,7 @@ private:
 				.pWaitSemaphores = &*device.get_present_semaphore(current_frame),
 				.pWaitDstStageMask = &wait_destination_stage_mask,
 				.commandBufferCount = 1,
-				.pCommandBuffers = &*command_buffers[current_frame],
+				.pCommandBuffers = &*command_buffers[current_frame].get_command_buffer(),
 				.signalSemaphoreCount = 1,
 				.pSignalSemaphores = &*device.get_render_semaphore(current_frame),
 			};
@@ -1267,16 +1265,16 @@ private:
 
 		constexpr float speed = 3.0f;
 
-		if (input.is_pressed(tramogi::input::Key::W)) {
+		if (input.is_pressed(Key::W)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, -speed * delta, 0.0f));
 		}
-		if (input.is_pressed(tramogi::input::Key::A)) {
+		if (input.is_pressed(Key::A)) {
 			pos = glm::translate(pos, glm::vec3(speed * delta, 0.0f, 0.0f));
 		}
-		if (input.is_pressed(tramogi::input::Key::S)) {
+		if (input.is_pressed(Key::S)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, speed * delta, 0.0f));
 		}
-		if (input.is_pressed(tramogi::input::Key::D)) {
+		if (input.is_pressed(Key::D)) {
 			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
 		}
 

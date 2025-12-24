@@ -3,6 +3,7 @@ add_library(
 	SHARED
 		allocator.cpp
 		buffer.cpp
+		command_buffer.cpp
 		device.cpp
 		dispatch_loader.cpp
 		instance.cpp

@@ -19,6 +19,7 @@ class Semaphore;
 
 namespace tramogi::graphics {
 
+class CommandBuffer;
 class Instance;
 class PhysicalDevice;
 
@@ -39,9 +40,10 @@ public:
 		bool wait_for_fence = false
 	);
 	core::Result<> present(vk::PresentInfoKHR present_info);
+	void submit(const CommandBuffer &command_buffer);
 
-	vk::raii::CommandBuffer allocate_command_buffer();
-	std::vector<vk::raii::CommandBuffer> allocate_command_buffer(uint32_t count);
+	CommandBuffer allocate_command_buffer() const;
+	std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;
 
 	void wait_idle(uint32_t frame_index) const;
 	void wait_graphics_queue() const;
