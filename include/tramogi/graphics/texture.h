@@ -2,24 +2,35 @@
 
 #include "tramogi/core/errors.h"
 #include <cstdint>
-#include <vulkan/vulkan_raii.hpp>
+#include <memory>
+
+namespace vk {
+enum class Format;
+class PhysicalDevice;
+namespace raii {
+class Device;
+}
+} // namespace vk
 
 namespace tramogi::graphics {
 
+class Device;
+
 class Texture {
 public:
-	core::Result<> allocate(
-		uint32_t width,
-		uint32_t height,
-		vk::PhysicalDevice physical_device,
-		const vk::raii::Device &device,
-		vk::Format format
-	);
+	Texture();
+	~Texture();
+
+	core::Result<> init(const Device &device, uint32_t width, uint32_t height, bool mipmap);
+
+	Texture(const Texture &) = delete;
+	Texture &operator=(const Texture &) = delete;
+	Texture(Texture &&);
+	Texture &operator=(Texture &&);
 
 private:
-	vk::raii::Image image;
-	vk::raii::DeviceMemory memory;
-	vk::raii::ImageView image_view;
+	struct Impl;
+	std::unique_ptr<Impl> impl;
 };
 
 } // namespace tramogi::graphics
