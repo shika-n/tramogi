@@ -116,7 +116,6 @@ private:
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
 	vk::raii::Pipeline graphics_pipeline = nullptr;
 
-	vk::raii::CommandPool command_pool = nullptr;
 	std::vector<vk::raii::CommandBuffer> command_buffers;
 
 	tramogi::graphics::VertexBuffer vertex_buffer;
@@ -160,7 +159,6 @@ private:
 		create_image_views();
 		create_descriptor_layout();
 		create_graphics_pipeline();
-		create_command_pool();
 		create_depth_resources();
 		create_texture_image();
 		create_texture_image_view();
@@ -536,15 +534,6 @@ private:
 		return vk::raii::ShaderModule(device.get_device(), shader_module_create_info);
 	}
 
-	void create_command_pool() {
-		vk::CommandPoolCreateInfo pool_info {
-			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-			.queueFamilyIndex = physical_device.get_graphics_queue_index(),
-		};
-
-		command_pool = vk::raii::CommandPool(device.get_device(), pool_info);
-	}
-
 	bool has_stencil_component(vk::Format format) {
 		return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
 	}
@@ -809,15 +798,7 @@ private:
 	}
 
 	vk::raii::CommandBuffer begin_single_time_commands() {
-		vk::CommandBufferAllocateInfo allocate_info {
-			.commandPool = command_pool,
-			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = 1,
-		};
-
-		vk::raii::CommandBuffer command_buffer = std::move(
-			device.get_device().allocateCommandBuffers(allocate_info).front()
-		);
+		vk::raii::CommandBuffer command_buffer = device.allocate_command_buffer();
 
 		vk::CommandBufferBeginInfo begin_info {
 			.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
@@ -840,13 +821,7 @@ private:
 	}
 
 	void create_command_buffers() {
-		vk::CommandBufferAllocateInfo allocateInfo {
-			.commandPool = command_pool,
-			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = MAX_FRAMES_IN_FLIGHT,
-		};
-
-		command_buffers = vk::raii::CommandBuffers(device.get_device(), allocateInfo);
+		command_buffers = device.allocate_command_buffer(MAX_FRAMES_IN_FLIGHT);
 	}
 
 	void load_model() {
