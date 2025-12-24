@@ -7,6 +7,7 @@
 
 namespace tramogi::graphics {
 
+using core::Error;
 using core::Result;
 
 Result<uint32_t> find_memory_type(
@@ -22,7 +23,7 @@ Result<uint32_t> find_memory_type(
 		}
 	}
 
-	return std::unexpected("No suitable memory type");
+	return Error("No suitable memory type");
 }
 
 core::Result<vk::raii::DeviceMemory> allocate_memory(
@@ -42,7 +43,7 @@ core::Result<vk::raii::DeviceMemory> allocate_memory(
 		properties
 	);
 	if (!memory_index) {
-		return std::unexpected(memory_index.error());
+		return Error(memory_index.error());
 	}
 
 	vk::MemoryAllocateInfo allocate_info {

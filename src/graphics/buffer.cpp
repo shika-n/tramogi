@@ -12,6 +12,7 @@
 
 namespace tramogi::graphics {
 
+using core::Error;
 using core::Result;
 
 struct Buffer::Impl {
@@ -67,7 +68,7 @@ Result<> StagingBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return std::unexpected(allocation_result.error());
+		return Error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
@@ -90,7 +91,7 @@ Result<> VertexBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return std::unexpected(allocation_result.error());
+		return Error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
@@ -113,7 +114,7 @@ Result<> IndexBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return std::unexpected(allocation_result.error());
+		return Error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
@@ -136,7 +137,7 @@ Result<> UniformBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return std::unexpected(allocation_result.error());
+		return Error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
