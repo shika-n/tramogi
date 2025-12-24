@@ -1,5 +1,4 @@
 #include "command_buffer.h"
-#include "../logging.h"
 #include "vulkan/vulkan.hpp"
 #include <vulkan/vulkan_raii.hpp>
 
@@ -13,9 +12,7 @@ CommandBuffer::CommandBuffer(vk::raii::CommandBuffer &&command_buffer)
 	: impl(std::make_unique<Impl>()), type(CommandBufferType::Multiple) {
 	impl->command_buffer = std::move(command_buffer);
 }
-CommandBuffer::~CommandBuffer() {
-	DLOG("cmd DTOR ");
-};
+CommandBuffer::~CommandBuffer() = default;
 CommandBuffer::CommandBuffer(CommandBuffer &&) = default;
 CommandBuffer &CommandBuffer::operator=(CommandBuffer &&) = default;
 

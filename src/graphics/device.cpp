@@ -156,9 +156,7 @@ void Device::wait_idle(uint32_t frame_index) const {
 }
 
 void Device::wait_graphics_queue() const {
-	DLOG("Waiting for queue");
 	impl->graphics_queue.waitIdle();
-	DLOG("Waiting for queue OK");
 }
 
 void Device::reset_fence(uint32_t frame_index) {
