@@ -5,6 +5,8 @@ __pycache__/
 build/
 /shaders/
 
+imgui.ini
+
 CMakeUserPresets.json
 libgcc_s_seh-1.dll
 libstdc++-6.dll
