@@ -105,7 +105,6 @@ public:
 	}
 
 private:
-	ImGui_ImplVulkan_InitInfo imgui_info {};
 	Window window;
 
 	tramogi::graphics::Instance instance;
@@ -181,6 +180,12 @@ private:
 
 		debug_log("Starting ImGui setup");
 
+		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
+		dynamic_render_info.colorAttachmentCount = 1;
+		dynamic_render_info.pColorAttachmentFormats = &swapchain_surface_format.format;
+		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
+
+		ImGui_ImplVulkan_InitInfo imgui_info {};
 		imgui_info.Instance = *instance.get_instance();
 		imgui_info.PhysicalDevice = *physical_device.get_physical_device();
 		imgui_info.Device = *device.get_device();
@@ -192,14 +197,8 @@ private:
 		imgui_info.UseDynamicRendering = true;
 		imgui_info.PipelineInfoMain.Subpass = 0;
 		imgui_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+		imgui_info.PipelineInfoMain.PipelineRenderingCreateInfo = dynamic_render_info;
 
-		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
-		dynamic_render_info.colorAttachmentCount = 1;
-		dynamic_render_info.pColorAttachmentFormats = &swapchain_surface_format.format;
-		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
-
-		imgui_info.PipelineInfoMain.PipelineRenderingCreateInfo =
-			static_cast<VkPipelineRenderingCreateInfoKHR>(dynamic_render_info);
 		tramogi::graphics::imgui::init(window, &imgui_info);
 	}
 
@@ -218,8 +217,15 @@ private:
 			window.poll_events();
 
 			tramogi::graphics::imgui::next_frame();
-			ImGui::ShowDemoWindow();
-			tramogi::graphics::imgui::end_frame();
+
+			{
+				ImGui::Begin("Hello World!");
+				ImGui::Text("Hi from imgui!");
+				if (ImGui::Button("Press me!", ImVec2(100, 24))) {
+					debug_log("Button pressed!");
+				}
+				ImGui::End();
+			}
 
 			if (input.is_pressed(tramogi::input::Key::P)) {
 				print_fps = !print_fps;
@@ -1254,7 +1260,6 @@ private:
 
 	void draw_frame(double delta) {
 		device.wait_idle(current_frame);
-
 		try {
 			auto [result, image_index] = swapchain.acquireNextImage(
 				UINT64_MAX,
@@ -1272,10 +1277,9 @@ private:
 			}
 
 			command_buffers[current_frame].reset();
+			update_uniform_buffer(current_frame, delta);
 			record_command_buffer(image_index);
 			device.reset_fence(current_frame);
-
-			update_uniform_buffer(current_frame, delta);
 
 			vk::PipelineStageFlags wait_destination_stage_mask(
 				vk::PipelineStageFlagBits::eColorAttachmentOutput
@@ -1324,10 +1328,10 @@ private:
 		static auto start_time = std::chrono::high_resolution_clock::now();
 
 		auto current_time = std::chrono::high_resolution_clock::now();
-		float time = std::chrono::duration<float, std::chrono::seconds::period>(
-						 current_time - start_time
+		[[maybe_unused]] float time = std::chrono::duration<float, std::chrono::seconds::period>(
+										  current_time - start_time
 		)
-						 .count();
+										  .count();
 
 		constexpr float speed = 3.0f;
 
@@ -1344,9 +1348,24 @@ private:
 			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
 		}
 
+		static glm::vec3 rot;
+		{
+			ImGui::Begin("Position");
+			ImGui::SliderFloat3("Rotation", &rot.x, 0, 360);
+			ImGui::End();
+		}
+
 		UniformBufferObject ubo;
 		ubo.model = glm::scale(
-			glm::rotate(pos, time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			glm::rotate(
+				glm::rotate(
+					glm::rotate(pos, glm::radians(rot.z), glm::vec3(0.0f, 0.0f, 1.0f)),
+					glm::radians(rot.y),
+					glm::vec3(0.0f, 1.0f, 0.0f)
+				),
+				glm::radians(rot.x),
+				glm::vec3(1.0f, 0.0f, 0.0f)
+			),
 			glm::vec3(2.0f)
 		);
 		ubo.view = glm::lookAt(

@@ -1,5 +1,3 @@
-find_package(Vulkan)
-
 add_library(
 	imgui
 	STATIC
@@ -23,7 +21,7 @@ target_link_libraries(
 	imgui
 	PUBLIC
 		glfw
-		Vulkan::Vulkan
+		Vulkan::Headers
 )
 
 set_target_properties(
@@ -35,6 +33,5 @@ set_target_properties(
 target_compile_definitions(
 	imgui
 	PRIVATE
-		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
-		VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
+		IMGUI_IMPL_VULKAN_NO_PROTOTYPES=1
 )

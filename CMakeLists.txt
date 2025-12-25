@@ -10,10 +10,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
+add_subdirectory(external)
 add_subdirectory(external/glfw SYSTEM)
 add_subdirectory(external/glm SYSTEM)
-add_subdirectory(external/Vulkan-Headers SYSTEM)
 add_subdirectory(external/tinyobjloader SYSTEM)
+add_subdirectory(external/Vulkan-Headers SYSTEM)
 
 include_directories(include)
 
