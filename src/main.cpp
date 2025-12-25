@@ -35,6 +35,10 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
+
 #include "graphics/allocator.h"
 #include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
@@ -46,6 +50,7 @@
 #include "tramogi/core/io/model.h"
 #include "tramogi/core/logging/logging.h"
 #include "tramogi/graphics/buffer.h"
+#include "tramogi/graphics/imgui/imgui_loader.h"
 #include "tramogi/input/keyboard.h"
 #include "tramogi/platform/window.h"
 
@@ -100,6 +105,7 @@ public:
 	}
 
 private:
+	ImGui_ImplVulkan_InitInfo imgui_info {};
 	Window window;
 
 	tramogi::graphics::Instance instance;
@@ -172,6 +178,29 @@ private:
 		create_descriptor_pool();
 		create_descriptor_sets();
 		create_command_buffers();
+
+		debug_log("Starting ImGui setup");
+
+		imgui_info.Instance = *instance.get_instance();
+		imgui_info.PhysicalDevice = *physical_device.get_physical_device();
+		imgui_info.Device = *device.get_device();
+		imgui_info.QueueFamily = physical_device.get_graphics_queue_index();
+		imgui_info.Queue = *device.get_graphics_queue();
+		imgui_info.DescriptorPool = *descriptor_pool;
+		imgui_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
+		imgui_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+		imgui_info.UseDynamicRendering = true;
+		imgui_info.PipelineInfoMain.Subpass = 0;
+		imgui_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
+		dynamic_render_info.colorAttachmentCount = 1;
+		dynamic_render_info.pColorAttachmentFormats = &swapchain_surface_format.format;
+		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
+
+		imgui_info.PipelineInfoMain.PipelineRenderingCreateInfo =
+			static_cast<VkPipelineRenderingCreateInfoKHR>(dynamic_render_info);
+		tramogi::graphics::imgui::init(window, &imgui_info);
 	}
 
 	void main_loop() {
@@ -187,6 +216,11 @@ private:
 				1000000000.0;
 
 			window.poll_events();
+
+			tramogi::graphics::imgui::next_frame();
+			ImGui::ShowDemoWindow();
+			tramogi::graphics::imgui::end_frame();
+
 			if (input.is_pressed(tramogi::input::Key::P)) {
 				print_fps = !print_fps;
 				debug_log("Print FPS: {}", print_fps);
@@ -217,6 +251,8 @@ private:
 
 	void cleanup() {
 		cleanup_swapchain();
+
+		tramogi::graphics::imgui::cleanup();
 	}
 
 	void create_instance() {
@@ -920,13 +956,13 @@ private:
 			},
 			vk::DescriptorPoolSize {
 				.type = vk::DescriptorType::eCombinedImageSampler,
-				.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+				.descriptorCount = MAX_FRAMES_IN_FLIGHT + 1,
 			},
 		};
 
 		vk::DescriptorPoolCreateInfo pool_info {
 			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-			.maxSets = MAX_FRAMES_IN_FLIGHT,
+			.maxSets = MAX_FRAMES_IN_FLIGHT + 1,
 			.poolSizeCount = pool_sizes.size(),
 			.pPoolSizes = pool_sizes.data(),
 		};
@@ -1197,6 +1233,9 @@ private:
 
 		// command_buffers[current_frame].draw(3, 1, 1, 0);
 		command_buffers[current_frame].drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+
+		tramogi::graphics::imgui::render(command_buffers[current_frame]);
+
 		command_buffers[current_frame].endRendering();
 
 		transition_image_layout(

@@ -11,6 +11,7 @@ class SubmitInfo;
 namespace raii {
 class Device;
 class Semaphore;
+class Queue;
 } // namespace raii
 } // namespace vk
 
@@ -46,6 +47,7 @@ public:
 	}
 
 	const vk::raii::Device &get_device() const;
+	const vk::raii::Queue &get_graphics_queue() const;
 	const vk::raii::Semaphore &get_render_semaphore(uint32_t frame_index) const;
 	const vk::raii::Semaphore &get_present_semaphore(uint32_t frame_index) const;
 

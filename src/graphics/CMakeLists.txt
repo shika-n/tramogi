@@ -1,3 +1,5 @@
+add_subdirectory(imgui)
+
 add_library(
 	${PROJECT_NAME}-graphics
 	SHARED

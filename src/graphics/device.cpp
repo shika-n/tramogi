@@ -121,6 +121,10 @@ const vk::raii::Device &Device::get_device() const {
 	return impl->device;
 }
 
+const vk::raii::Queue &Device::get_graphics_queue() const {
+	return impl->graphics_queue;
+}
+
 const vk::raii::Semaphore &Device::get_render_semaphore(uint32_t frame_index) const {
 	return impl->render_semaphores[frame_index];
 }
