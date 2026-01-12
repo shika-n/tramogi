@@ -3,12 +3,15 @@
 #include "tramogi/core/errors.h"
 #include <memory>
 #include <stdint.h>
+#include <vector>
 
 namespace vk {
 class Fence;
 class PresentInfoKHR;
 class SubmitInfo;
 namespace raii {
+class CommandBuffer;
+class CommandPool;
 class Device;
 class Semaphore;
 } // namespace raii
@@ -16,6 +19,7 @@ class Semaphore;
 
 namespace tramogi::graphics {
 
+class CommandBuffer;
 class Instance;
 class PhysicalDevice;
 
@@ -36,6 +40,10 @@ public:
 		bool wait_for_fence = false
 	);
 	core::Result<> present(vk::PresentInfoKHR present_info);
+	void submit(const CommandBuffer &command_buffer);
+
+	CommandBuffer allocate_command_buffer() const;
+	std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;
 
 	void wait_idle(uint32_t frame_index) const;
 	void wait_graphics_queue() const;
@@ -46,6 +54,8 @@ public:
 	}
 
 	const vk::raii::Device &get_device() const;
+	const vk::raii::CommandPool &get_command_pool() const;
+
 	const vk::raii::Semaphore &get_render_semaphore(uint32_t frame_index) const;
 	const vk::raii::Semaphore &get_present_semaphore(uint32_t frame_index) const;
 

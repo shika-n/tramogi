@@ -1,4 +1,5 @@
 #include "device.h"
+#include "command_buffer.h"
 #include "dispatch_loader.h"
 #include "instance.h"
 #include "physical_device.h"
@@ -23,6 +24,16 @@ struct Device::Impl {
 	std::vector<vk::raii::Semaphore> render_semaphores;
 	std::vector<vk::raii::Semaphore> present_semaphores;
 	std::vector<vk::raii::Fence> fences;
+
+	vk::raii::CommandPool command_pool = nullptr;
+
+	void init_command_pool(const PhysicalDevice &physical_device) {
+		vk::CommandPoolCreateInfo create_info {
+			.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+			.queueFamilyIndex = physical_device.get_graphics_queue_index(),
+		};
+		command_pool = vk::raii::CommandPool(device, create_info);
+	}
 };
 
 Device::Device(const PhysicalDevice &physical_device)
@@ -60,6 +71,8 @@ void Device::init(const Instance &instance) {
 	};
 
 	impl->device = vk::raii::Device(physical_device.get_physical_device(), device_create_info);
+	init_loader(instance.get_instance(), impl->device);
+
 	impl->graphics_queue =
 		vk::raii::Queue(impl->device, physical_device.get_graphics_queue_index(), 0);
 	impl->present_queue =
@@ -67,7 +80,7 @@ void Device::init(const Instance &instance) {
 
 	create_sync_objects();
 
-	init_loader(instance.get_instance(), impl->device);
+	impl->init_command_pool(physical_device);
 }
 
 void Device::submit_graphics(
@@ -99,6 +112,37 @@ Result<> Device::present(vk::PresentInfoKHR present_info) {
 	return {};
 }
 
+void Device::submit(const CommandBuffer &command_buffer) {
+	vk::SubmitInfo submit_info {
+		.commandBufferCount = 1,
+		.pCommandBuffers = &*command_buffer.get_command_buffer(),
+	};
+	submit_graphics(submit_info);
+	if (command_buffer.get_type() == CommandBufferType::OneTime) {
+		wait_graphics_queue();
+	}
+}
+
+CommandBuffer Device::allocate_command_buffer() const {
+	return std::move(allocate_command_buffers(1).front());
+}
+
+std::vector<CommandBuffer> Device::allocate_command_buffers(uint32_t count) const {
+	assert(count > 0);
+	vk::CommandBufferAllocateInfo allocate_info {
+		.commandPool = impl->command_pool,
+		.level = vk::CommandBufferLevel::ePrimary,
+		.commandBufferCount = count,
+	};
+
+	std::vector<CommandBuffer> command_buffers;
+	for (auto &command_buffer : impl->device.allocateCommandBuffers(allocate_info)) {
+		command_buffers.emplace_back(std::move(command_buffer));
+	}
+
+	return command_buffers;
+}
+
 void Device::wait_idle(uint32_t frame_index) const {
 	impl->device.waitIdle();
 	while (vk::Result::eTimeout == impl->device.waitForFences(
@@ -119,6 +163,10 @@ void Device::reset_fence(uint32_t frame_index) {
 
 const vk::raii::Device &Device::get_device() const {
 	return impl->device;
+}
+
+const vk::raii::CommandPool &Device::get_command_pool() const {
+	return impl->command_pool;
 }
 
 const vk::raii::Semaphore &Device::get_render_semaphore(uint32_t frame_index) const {
