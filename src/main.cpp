@@ -35,6 +35,10 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+#include <imgui.h>
+
 #include "graphics/allocator.h"
 #include "graphics/command_buffer.h"
 #include "graphics/device.h"
@@ -47,6 +51,7 @@
 #include "tramogi/core/io/model.h"
 #include "tramogi/core/logging/logging.h"
 #include "tramogi/graphics/buffer.h"
+#include "tramogi/graphics/imgui/imgui_loader.h"
 #include "tramogi/input/keyboard.h"
 #include "tramogi/platform/window.h"
 
@@ -173,6 +178,29 @@ private:
 		create_descriptor_pool();
 		create_descriptor_sets();
 		create_command_buffers();
+
+		debug_log("Starting ImGui setup");
+
+		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
+		dynamic_render_info.colorAttachmentCount = 1;
+		dynamic_render_info.pColorAttachmentFormats = &swapchain_surface_format.format;
+		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
+
+		ImGui_ImplVulkan_InitInfo imgui_info {};
+		imgui_info.Instance = *instance.get_instance();
+		imgui_info.PhysicalDevice = *physical_device.get_physical_device();
+		imgui_info.Device = *device.get_device();
+		imgui_info.QueueFamily = physical_device.get_graphics_queue_index();
+		imgui_info.Queue = *device.get_graphics_queue();
+		imgui_info.DescriptorPool = *descriptor_pool;
+		imgui_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
+		imgui_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+		imgui_info.UseDynamicRendering = true;
+		imgui_info.PipelineInfoMain.Subpass = 0;
+		imgui_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+		imgui_info.PipelineInfoMain.PipelineRenderingCreateInfo = dynamic_render_info;
+
+		tramogi::graphics::imgui::init(window, &imgui_info);
 	}
 
 	void main_loop() {
@@ -188,6 +216,9 @@ private:
 				1000000000.0;
 
 			window.poll_events();
+
+			tramogi::graphics::imgui::next_frame();
+
 			if (input.is_pressed(Key::P)) {
 				print_fps = !print_fps;
 				debug_log("Print FPS: {}", print_fps);
@@ -218,6 +249,8 @@ private:
 
 	void cleanup() {
 		cleanup_swapchain();
+
+		tramogi::graphics::imgui::cleanup();
 	}
 
 	void create_instance() {
@@ -877,13 +910,13 @@ private:
 			},
 			vk::DescriptorPoolSize {
 				.type = vk::DescriptorType::eCombinedImageSampler,
-				.descriptorCount = MAX_FRAMES_IN_FLIGHT,
+				.descriptorCount = MAX_FRAMES_IN_FLIGHT + 1,
 			},
 		};
 
 		vk::DescriptorPoolCreateInfo pool_info {
 			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-			.maxSets = MAX_FRAMES_IN_FLIGHT,
+			.maxSets = MAX_FRAMES_IN_FLIGHT + 1,
 			.poolSizeCount = pool_sizes.size(),
 			.pPoolSizes = pool_sizes.data(),
 		};
@@ -1170,6 +1203,9 @@ private:
 		command_buffers[current_frame]
 			.get_command_buffer()
 			.drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+
+		tramogi::graphics::imgui::render(command_buffers[current_frame].get_command_buffer());
+
 		command_buffers[current_frame].get_command_buffer().endRendering();
 
 		transition_image_layout(
@@ -1188,7 +1224,6 @@ private:
 
 	void draw_frame(double delta) {
 		device.wait_idle(current_frame);
-
 		try {
 			auto [result, image_index] = swapchain.acquireNextImage(
 				UINT64_MAX,
@@ -1206,10 +1241,10 @@ private:
 			}
 
 			command_buffers[current_frame].get_command_buffer().reset();
-			record_command_buffer(image_index);
-			device.reset_fence(current_frame);
 
 			update_uniform_buffer(current_frame, delta);
+			record_command_buffer(image_index);
+			device.reset_fence(current_frame);
 
 			vk::PipelineStageFlags wait_destination_stage_mask(
 				vk::PipelineStageFlagBits::eColorAttachmentOutput
@@ -1258,10 +1293,10 @@ private:
 		static auto start_time = std::chrono::high_resolution_clock::now();
 
 		auto current_time = std::chrono::high_resolution_clock::now();
-		float time = std::chrono::duration<float, std::chrono::seconds::period>(
-						 current_time - start_time
+		[[maybe_unused]] float time = std::chrono::duration<float, std::chrono::seconds::period>(
+										  current_time - start_time
 		)
-						 .count();
+										  .count();
 
 		constexpr float speed = 3.0f;
 
@@ -1278,15 +1313,36 @@ private:
 			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
 		}
 
+		static glm::vec3 rot;
+		static glm::vec3 pos_translate;
+		{
+			ImGui::Begin("Properties");
+			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f);
+			ImGui::SliderFloat3("Rotation", &rot.x, 0, 360);
+			ImGui::End();
+		}
+
 		UniformBufferObject ubo;
 		ubo.model = glm::scale(
-			glm::rotate(pos, time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)),
+			glm::rotate(
+				glm::rotate(
+					glm::rotate(
+						glm::translate(pos, pos_translate),
+						glm::radians(rot.z),
+						glm::vec3(0.0f, 0.0f, 1.0f)
+					),
+					glm::radians(rot.y),
+					glm::vec3(0.0f, 1.0f, 0.0f)
+				),
+				glm::radians(rot.x),
+				glm::vec3(1.0f, 0.0f, 0.0f)
+			),
 			glm::vec3(2.0f)
 		);
 		ubo.view = glm::lookAt(
-			glm::vec3(0.0f, 5.0f, 1.0f),
+			glm::vec3(0.0f, 1.0f, 5.0f),
 			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 0.0f, 1.0f)
+			glm::vec3(0.0f, 1.0f, 0.0f)
 		);
 		ubo.projection = glm::perspective(
 			glm::radians(45.0f),

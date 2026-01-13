@@ -18,11 +18,13 @@ target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
 		glm::glm
+		imgui
 		Vulkan::Headers
 
 		${PROJECT_NAME}-core
 		${PROJECT_NAME}-core-file
 		${PROJECT_NAME}-graphics
+		${PROJECT_NAME}-graphics-imgui
 		${PROJECT_NAME}-input
 		${PROJECT_NAME}-platform
 )
