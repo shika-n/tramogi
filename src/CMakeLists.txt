@@ -17,9 +17,9 @@ set_target_properties(
 target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
-		glm::glm
+		glm
 		imgui
-		Vulkan::Headers
+		vulkan
 
 		${PROJECT_NAME}-core
 		${PROJECT_NAME}-core-file
@@ -27,15 +27,6 @@ target_link_libraries(
 		${PROJECT_NAME}-graphics-imgui
 		${PROJECT_NAME}-input
 		${PROJECT_NAME}-platform
-)
-
-target_compile_definitions(
-	${PROJECT_NAME}
-	PRIVATE
-		VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
-		VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
-		GLM_FORCE_DEPTH_ZERO_TO_ONE=1
-		GLM_ENABLE_EXPERIMENTAL=1
 )
 
 function (add_slang_shader_target TARGET)

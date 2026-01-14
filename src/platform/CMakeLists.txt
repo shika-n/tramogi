@@ -8,7 +8,7 @@ target_link_libraries(
 	${PROJECT_NAME}-platform
 	PRIVATE
 		glfw
-		Vulkan::Headers
+		vulkan
 
 		${PROJECT_NAME}-core
 )

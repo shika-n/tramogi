@@ -9,14 +9,9 @@ add_library(
 target_link_libraries(
 	${PROJECT_NAME}-core-file
 	PRIVATE
-		glm::glm
-		tinyobjloader
+		glm
+		stb
+		tinyobj
 
 		${PROJECT_NAME}-core
-)
-
-target_include_directories(
-	${PROJECT_NAME}-core-file
-	PRIVATE
-		${PROJECT_SOURCE_DIR}/external/stb
 )
