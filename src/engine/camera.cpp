@@ -25,6 +25,7 @@ void Camera::change_perspective(uint32_t width, uint32_t height, float fov) {
 		0.1f,
 		100.0f
 	);
+	projection[1][1] *= -1;
 }
 
 void Camera::update_view() {

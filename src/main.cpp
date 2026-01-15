@@ -1365,7 +1365,6 @@ private:
 		);
 		ubo.view = camera.get_view();
 		ubo.projection = camera.get_projection();
-		ubo.projection[1][1] *= -1;
 
 		uniform_buffers[current_image].upload_data(&ubo);
 	}
