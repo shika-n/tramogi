@@ -53,6 +53,7 @@
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/graphics/imgui/imgui_loader.h"
 #include "tramogi/input/keyboard.h"
+#include "tramogi/input/mouse.h"
 #include "tramogi/platform/window.h"
 
 constexpr uint32_t WIDTH = 1280;
@@ -148,15 +149,22 @@ private:
 
 	Model model;
 
-	Keyboard input;
+	Keyboard key_input;
+	Mouse mouse_input;
 
 	void init_window() {
 		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
 			throw std::runtime_error("Failed to initialize GLFW");
 		}
 		window.set_key_callback([this](int scancode, bool is_pressed) {
-			input.set_key(scancode, is_pressed);
+			key_input.set_key(scancode, is_pressed);
 		});
+		window.set_mouse_callback(
+			[this](int button, bool is_pressed) {
+				mouse_input.set_mouse_button(button, is_pressed);
+			},
+			[this](double x, double y) { mouse_input.set_mouse_position(x, y); }
+		);
 	}
 
 	void init_vulkan() {
@@ -222,12 +230,12 @@ private:
 
 			tramogi::graphics::imgui::next_frame();
 
-			if (input.is_pressed(Key::P)) {
+			if (key_input.is_pressed(Key::P)) {
 				print_fps = !print_fps;
 				debug_log("Print FPS: {}", print_fps);
-				input.consume_key(tramogi::input::Key::P);
+				key_input.consume_key(tramogi::input::Key::P);
 			}
-			if (input.is_pressed(Key::Q)) {
+			if (key_input.is_pressed(Key::Q)) {
 				window.request_close();
 			}
 
@@ -1303,16 +1311,16 @@ private:
 
 		constexpr float speed = 3.0f;
 
-		if (input.is_pressed(Key::W)) {
+		if (key_input.is_pressed(Key::W)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, -speed * delta, 0.0f));
 		}
-		if (input.is_pressed(Key::A)) {
+		if (key_input.is_pressed(Key::A)) {
 			pos = glm::translate(pos, glm::vec3(speed * delta, 0.0f, 0.0f));
 		}
-		if (input.is_pressed(Key::S)) {
+		if (key_input.is_pressed(Key::S)) {
 			pos = glm::translate(pos, glm::vec3(0.0f, speed * delta, 0.0f));
 		}
-		if (input.is_pressed(Key::D)) {
+		if (key_input.is_pressed(Key::D)) {
 			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
 		}
 

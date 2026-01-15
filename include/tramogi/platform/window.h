@@ -30,6 +30,10 @@ public:
 	bool init(uint32_t width, uint32_t height, const char *title);
 
 	void set_key_callback(std::function<void(int, bool)> callback);
+	void set_mouse_callback(
+		std::function<void(int, bool)> button_callback,
+		std::function<void(double, double)> position_callback
+	);
 
 	void request_close();
 	bool should_close();
@@ -53,6 +57,8 @@ private:
 	GLFWwindow *window = nullptr;
 
 	std::function<void(int, bool)> key_callback;
+	std::function<void(int, bool)> mouse_button_callback;
+	std::function<void(float, float)> mouse_position_callback;
 
 	static void resize_callback(GLFWwindow *window, int width, int height);
 };

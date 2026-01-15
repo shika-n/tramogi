@@ -43,6 +43,22 @@ void Window::set_key_callback(std::function<void(int, bool)> callback) {
 	});
 }
 
+void Window::set_mouse_callback(
+	std::function<void(int, bool)> button_callback,
+	std::function<void(double, double)> position_callback
+) {
+	mouse_button_callback = button_callback;
+	mouse_position_callback = position_callback;
+	glfwSetMouseButtonCallback(window, [](GLFWwindow *window, int button, int action, int) {
+		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
+		instance->mouse_button_callback(button, action == GLFW_PRESS);
+	});
+	glfwSetCursorPosCallback(window, [](GLFWwindow *window, double x, double y) {
+		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
+		instance->mouse_position_callback(x, y);
+	});
+}
+
 void Window::request_close() {
 	glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
