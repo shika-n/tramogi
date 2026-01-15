@@ -103,6 +103,7 @@ public:
 	void run() {
 		init_window();
 		init_vulkan();
+		init_imgui();
 		main_loop();
 		cleanup();
 	}
@@ -178,7 +179,9 @@ private:
 		create_descriptor_pool();
 		create_descriptor_sets();
 		create_command_buffers();
+	}
 
+	void init_imgui() {
 		debug_log("Starting ImGui setup");
 
 		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};

@@ -18,7 +18,6 @@ target_link_libraries(
 	${PROJECT_NAME}
 	PRIVATE
 		glm
-		imgui
 		vulkan
 
 		${PROJECT_NAME}-core

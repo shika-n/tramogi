@@ -13,9 +13,9 @@ namespace tramogi::graphics::imgui {
 
 using platform::Window;
 
-void init(const Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_info) {
+ImGuiContext *init(const Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_info) {
 	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
+	ImGuiContext *ctx = ImGui::CreateContext();
 	ImGui::StyleColorsDark();
 
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -31,6 +31,8 @@ void init(const Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_info) {
 
 	ImGui_ImplGlfw_InitForVulkan(window.get_glfw_window(), true);
 	ImGui_ImplVulkan_Init(imgui_init_info);
+
+	return ctx;
 }
 
 void next_frame() {

@@ -1,9 +1,11 @@
 #pragma once
 
+struct ImGuiContext;
+struct ImGui_ImplVulkan_InitInfo;
+
 namespace vk {
 class CommandBuffer;
 }
-struct ImGui_ImplVulkan_InitInfo;
 
 namespace tramogi {
 
@@ -13,7 +15,7 @@ class Window;
 
 namespace graphics::imgui {
 
-void init(const platform::Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_info);
+ImGuiContext *init(const platform::Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_info);
 void next_frame();
 void end_frame();
 void render(vk::CommandBuffer cmd);

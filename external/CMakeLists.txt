@@ -21,8 +21,6 @@ add_library(
 		imgui/imgui_draw.cpp
 		imgui/imgui_tables.cpp
 		imgui/imgui_widgets.cpp
-		imgui/backends/imgui_impl_vulkan.cpp
-		imgui/backends/imgui_impl_glfw.cpp
 )
 target_include_directories(imgui SYSTEM PUBLIC imgui)
 target_link_libraries(
@@ -34,12 +32,33 @@ target_link_libraries(
 target_compile_definitions(
 	imgui
 	PRIVATE
-		IMGUI_IMPL_VULKAN_NO_PROTOTYPES=1
+		IMGUI_IMPL_VULKAN_NO_PROTOTYPES
 )
 set_target_properties(
 	imgui
 	PROPERTIES
 		POSITION_INDEPENDENT_CODE ON
+)
+# ImGui Backends
+add_library(
+	imgui_glfw_vulkan
+	OBJECT
+		imgui/backends/imgui_impl_vulkan.cpp
+		imgui/backends/imgui_impl_glfw.cpp
+)
+target_include_directories(imgui SYSTEM PUBLIC imgui/backends)
+target_link_libraries(
+	imgui_glfw_vulkan
+	PUBLIC
+		imgui
+	PRIVATE
+		glfw
+		vulkan
+)
+target_compile_definitions(
+	imgui_glfw_vulkan
+	PRIVATE
+		IMGUI_IMPL_VULKAN_NO_PROTOTYPES
 )
 
 # stb

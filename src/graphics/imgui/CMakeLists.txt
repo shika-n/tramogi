@@ -7,6 +7,10 @@ add_library(
 target_link_libraries(
 	${PROJECT_NAME}-graphics-imgui
 	PUBLIC
-		imgui
+		imgui_glfw_vulkan
+	PRIVATE
 		vulkan
+
+		${PROJECT_NAME}-platform
+		${PROJECT_NAME}-graphics
 )
