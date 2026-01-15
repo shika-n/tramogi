@@ -9,6 +9,7 @@
 #include <expected>
 #include <format>
 #include <functional>
+#include <imgui_internal.h>
 #include <limits>
 #include <memory>
 #include <print>
@@ -72,27 +73,6 @@ using namespace tramogi::input;
 using namespace tramogi::platform;
 
 using namespace tramogi::core::logging;
-
-static vk::VertexInputBindingDescription get_binding_description() {
-	return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
-}
-
-static std::array<vk::VertexInputAttributeDescription, 2> get_attribute_description() {
-	return {
-		vk::VertexInputAttributeDescription {
-			0,
-			0,
-			vk::Format::eR32G32B32Sfloat,
-			offsetof(Vertex, position)
-		},
-		vk::VertexInputAttributeDescription {
-			1,
-			0,
-			vk::Format::eR32G32Sfloat,
-			offsetof(Vertex, tex_coord)
-		}
-	};
-}
 
 struct UniformBufferObject {
 	glm::mat4 projection;
@@ -258,6 +238,17 @@ private:
 			drag_first_frame = !mouse_input.is_pressed(MouseButton::Middle);
 
 			camera.update_view();
+			{
+				ImGui::Begin("Misc");
+				ImGui::Text(
+					"Position %.3f %.3f %.3f",
+					camera.get_position().x,
+					camera.get_position().y,
+					camera.get_position().z
+				);
+				ImGui::Text("Mouse %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
+				ImGui::End();
+			}
 
 			draw_frame(delta);
 
@@ -480,13 +471,27 @@ private:
 			.pDynamicStates = dynamic_states.data(),
 		};
 
-		auto binding_description = get_binding_description();
-		auto attribute_description = get_attribute_description();
+		constexpr vk::VertexInputBindingDescription binding_description =
+			{0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+		constexpr std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {
+			vk::VertexInputAttributeDescription {
+				0,
+				0,
+				vk::Format::eR32G32B32Sfloat,
+				offsetof(Vertex, position)
+			},
+			vk::VertexInputAttributeDescription {
+				1,
+				0,
+				vk::Format::eR32G32Sfloat,
+				offsetof(Vertex, tex_coord)
+			}
+		};
 		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
 			.vertexBindingDescriptionCount = 1,
 			.pVertexBindingDescriptions = &binding_description,
-			.vertexAttributeDescriptionCount = attribute_description.size(),
-			.pVertexAttributeDescriptions = attribute_description.data(),
+			.vertexAttributeDescriptionCount = attribute_descriptions.size(),
+			.pVertexAttributeDescriptions = attribute_descriptions.data(),
 		};
 		vk::PipelineInputAssemblyStateCreateInfo input_assembly_info {
 			.topology = vk::PrimitiveTopology::eTriangleList
@@ -1285,12 +1290,6 @@ private:
 		static glm::vec3 pos_translate;
 		{
 			ImGui::Begin("Properties");
-			ImGui::Text(
-				"Camera Position %.3f %.3f %.3f",
-				camera.get_position().x,
-				camera.get_position().y,
-				camera.get_position().z
-			);
 			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f);
 			ImGui::SliderFloat3("Rotation", &rot.x, 0, 360);
 			ImGui::End();
@@ -1308,7 +1307,7 @@ private:
 					glm::radians(rot.y),
 					glm::vec3(0.0f, 1.0f, 0.0f)
 				),
-				glm::radians(rot.x),
+				glm::radians(rot.x + 90.0f),
 				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
 			glm::vec3(2.0f)
