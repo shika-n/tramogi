@@ -32,14 +32,12 @@ class PhysicalDevice {
 public:
 	static const std::vector<const char *> required_device_extensions;
 
-	PhysicalDevice();
+	PhysicalDevice(const Instance &instance, const vk::SurfaceKHR &surface_khr);
 	~PhysicalDevice();
 	PhysicalDevice(const PhysicalDevice &) = delete;
 	PhysicalDevice &operator=(const PhysicalDevice &) = delete;
 	PhysicalDevice(PhysicalDevice &&);
 	PhysicalDevice &operator=(PhysicalDevice &&);
-
-	core::Result<> init(const Instance &instance, const vk::SurfaceKHR &surface_khr);
 
 	uint32_t get_graphics_queue_index() const {
 		return device_suitableness.graphics_queue_index;

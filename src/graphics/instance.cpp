@@ -1,11 +1,11 @@
 #include "instance.h"
-#include "tramogi/core/errors.h"
 #include "tramogi/core/logging/logging.h"
 #include "vulkan/vulkan.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.hpp>
@@ -14,8 +14,6 @@
 
 namespace tramogi::graphics {
 
-using core::Error;
-using core::Result;
 using core::logging::debug_log;
 
 constexpr std::array<const char *, 1> validation_layers = {
@@ -33,11 +31,6 @@ struct Instance::Impl {
 	vk::raii::DebugUtilsMessengerEXT debug_messenger = nullptr;
 	vk::PhysicalDevice physical_device = nullptr;
 };
-
-Instance::Instance() : impl(std::make_unique<Impl>()) {}
-Instance::~Instance() = default;
-Instance::Instance(Instance &&) = default;
-Instance &Instance::operator=(Instance &&) = default;
 
 bool check_extensions(
 	const vk::raii::Context &context,
@@ -113,7 +106,8 @@ vk::raii::DebugUtilsMessengerEXT setup_debug_messenger(const vk::raii::Instance 
 	return instance.createDebugUtilsMessengerEXT(create_info);
 }
 
-Result<> Instance::init(const std::vector<const char *> &base_required_extensions) {
+Instance::Instance(const std::vector<const char *> &base_required_extensions)
+	: impl(std::make_unique<Impl>()) {
 	vk::ApplicationInfo app_info {
 		.pApplicationName = "Tramogi",
 		.applicationVersion = vk::makeVersion(0, 1, 0),
@@ -129,11 +123,11 @@ Result<> Instance::init(const std::vector<const char *> &base_required_extension
 		required_extensions.push_back(vk::EXTDebugUtilsExtensionName);
 	}
 	if (!check_layers(impl->context, required_layers)) {
-		return Error("Required layers not available");
+		throw std::runtime_error("Required layers not available");
 	}
 
 	if (!check_extensions(impl->context, required_extensions)) {
-		return Error("Required extensions not available");
+		throw std::runtime_error("Required extensions not available");
 	}
 
 	vk::InstanceCreateInfo create_info {
@@ -149,9 +143,11 @@ Result<> Instance::init(const std::vector<const char *> &base_required_extension
 	if constexpr (enable_validation_layer) {
 		impl->debug_messenger = setup_debug_messenger(impl->instance);
 	}
-
-	return {};
 }
+
+Instance::~Instance() = default;
+Instance::Instance(Instance &&) = default;
+Instance &Instance::operator=(Instance &&) = default;
 
 std::vector<vk::raii::PhysicalDevice> Instance::get_physical_devices() const {
 	return impl->instance.enumeratePhysicalDevices();

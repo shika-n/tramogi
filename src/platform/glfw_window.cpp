@@ -1,9 +1,10 @@
-#include "tramogi/core/logging/logging.h"
 #include "tramogi/platform/window.h"
 
 #include "tramogi/core/errors.h"
+#include "tramogi/core/logging/logging.h"
 #include <cstdint>
 #include <functional>
+#include <stdexcept>
 #include <vector>
 
 #define GLFW_INCLUDE_VULKAN
@@ -16,11 +17,11 @@ using core::Error;
 using core::Result;
 using core::logging::debug_log;
 
-bool Window::init(uint32_t width, uint32_t height, const char *title) {
+Window::Window(uint32_t width, uint32_t height, const char *title) {
 	// TODO: Check if llibdecor issue is solved. See: https://github.com/glfw/glfw/issues/2789
 	glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
 	if (!glfwInit()) {
-		return false;
+		throw std::runtime_error("Failed to initialize GLFW");
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -29,7 +30,9 @@ bool Window::init(uint32_t width, uint32_t height, const char *title) {
 	glfwSetWindowUserPointer(window, this);
 	glfwSetWindowSizeCallback(window, resize_callback);
 
-	return window != nullptr;
+	if (window == nullptr) {
+		throw std::runtime_error("Failed to create window");
+	}
 }
 
 void Window::set_key_callback(std::function<void(int, bool)> callback) {
@@ -81,10 +84,10 @@ std::vector<const char *> Window::get_required_extensions() {
 	return std::vector(extensions, extensions + extension_count);
 }
 
-Result<vk::SurfaceKHR> Window::create_surface(const vk::Instance &instance) {
+vk::SurfaceKHR Window::create_surface(const vk::Instance &instance) {
 	VkSurfaceKHR surface;
 	if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
-		return Error("Failed to create window surface");
+		throw std::runtime_error("Failed to create window surface");
 	}
 	return surface;
 }

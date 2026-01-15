@@ -9,8 +9,8 @@
 #include <expected>
 #include <format>
 #include <functional>
-#include <glm/ext/matrix_float4x4.hpp>
 #include <limits>
+#include <memory>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -27,6 +27,7 @@
 
 #include <glm/detail/qualifier.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/ext/matrix_float4x4.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/vector_float2.hpp>
 #include <glm/ext/vector_float3.hpp>
@@ -101,7 +102,10 @@ struct UniformBufferObject {
 
 class ProjectSkyHigh {
 public:
-	ProjectSkyHigh() : device(physical_device), camera(1280, 720, glm::radians(90.0f)) {
+	ProjectSkyHigh()
+		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
+		  physical_device(instance, window.create_surface(instance.get_instance())),
+		  device(physical_device, instance), camera(1280, 720, glm::radians(90.0f)) {
 		camera.set_position({0, 0, 5});
 	}
 
@@ -132,8 +136,8 @@ private:
 
 	std::vector<CommandBuffer> command_buffers;
 
-	VertexBuffer vertex_buffer;
-	IndexBuffer index_buffer;
+	std::unique_ptr<VertexBuffer> vertex_buffer;
+	std::unique_ptr<IndexBuffer> index_buffer;
 	std::vector<UniformBuffer> uniform_buffers;
 
 	vk::raii::DescriptorPool descriptor_pool = nullptr;
@@ -159,9 +163,6 @@ private:
 	Mouse mouse_input;
 
 	void init_window() {
-		if (!window.init(WIDTH, HEIGHT, "Tramogi Demo")) {
-			throw std::runtime_error("Failed to initialize GLFW");
-		}
 		window.set_key_callback([this](int scancode, bool is_pressed) {
 			key_input.set_key(scancode, is_pressed);
 		});
@@ -174,10 +175,6 @@ private:
 	}
 
 	void init_vulkan() {
-		create_instance();
-		pick_physical_device();
-		create_logical_device();
-
 		create_swapchain();
 		create_image_views();
 		create_descriptor_layout();
@@ -285,30 +282,6 @@ private:
 		cleanup_swapchain();
 
 		tramogi::graphics::imgui::cleanup();
-	}
-
-	void create_instance() {
-		auto extensions = window.get_required_extensions();
-		auto result = instance.init(extensions);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
-	}
-
-	void pick_physical_device() {
-		Result<vk::SurfaceKHR> surface_result = window.create_surface(instance.get_instance());
-		if (!surface_result) {
-			throw std::runtime_error(std::string(surface_result.error()));
-		}
-
-		auto result = physical_device.init(instance, surface_result.value());
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
-	}
-
-	void create_logical_device() {
-		device.init(instance);
 	}
 
 	void create_swapchain() {
@@ -644,11 +617,7 @@ private:
 		mip_levels = image_data.get_mip_levels();
 		vk::DeviceSize image_size = image_data.get_size();
 
-		StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(device, image_size);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
+		StagingBuffer staging_buffer(device, image_size);
 
 		staging_buffer.map();
 		staging_buffer.upload_data(image_data.get_data());
@@ -884,40 +853,25 @@ private:
 	void create_vertex_buffer() {
 		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
-		StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(device, buffer_size);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
+		StagingBuffer staging_buffer(device, buffer_size);
 		staging_buffer.map();
 		staging_buffer.upload_data(model.get_vertices().data());
 		staging_buffer.unmap();
 
-		result = vertex_buffer.init(device, buffer_size);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
-
-		copy_buffer(staging_buffer.get_buffer(), vertex_buffer.get_buffer(), buffer_size);
+		vertex_buffer = std::make_unique<VertexBuffer>(device, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), vertex_buffer->get_buffer(), buffer_size);
 	}
 
 	void create_index_buffer() {
 		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
 
-		StagingBuffer staging_buffer;
-		auto result = staging_buffer.init(device, buffer_size);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
+		StagingBuffer staging_buffer(device, buffer_size);
 		staging_buffer.map();
 		staging_buffer.upload_data(model.get_indices().data());
 		staging_buffer.unmap();
 
-		result = index_buffer.init(device, buffer_size);
-		if (!result) {
-			throw std::runtime_error(result.error());
-		}
-		copy_buffer(staging_buffer.get_buffer(), index_buffer.get_buffer(), buffer_size);
+		index_buffer = std::make_unique<IndexBuffer>(device, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), index_buffer->get_buffer(), buffer_size);
 	}
 
 	void create_uniform_buffers() {
@@ -925,11 +879,7 @@ private:
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
-			UniformBuffer ubo;
-			auto result = ubo.init(device, buffer_size);
-			if (!result) {
-				throw std::runtime_error(result.error());
-			}
+			UniformBuffer ubo(device, buffer_size);
 			ubo.map();
 
 			uniform_buffers.emplace_back(std::move(ubo));
@@ -1216,11 +1166,11 @@ private:
 
 		command_buffers[current_frame].get_command_buffer().bindVertexBuffers(
 			0,
-			*vertex_buffer.get_buffer(),
+			*vertex_buffer->get_buffer(),
 			{0}
 		);
 		command_buffers[current_frame].get_command_buffer().bindIndexBuffer(
-			*index_buffer.get_buffer(),
+			*index_buffer->get_buffer(),
 			0,
 			vk::IndexType::eUint32
 		);

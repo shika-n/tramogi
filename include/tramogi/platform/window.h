@@ -24,10 +24,8 @@ class Window {
 public:
 	bool resized = false;
 
-	Window() = default;
+	Window(uint32_t width, uint32_t height, const char *title);
 	Window(const Window &window) = delete;
-
-	bool init(uint32_t width, uint32_t height, const char *title);
 
 	void set_key_callback(std::function<void(int, bool)> callback);
 	void set_mouse_callback(
@@ -41,7 +39,7 @@ public:
 	void wait_events();
 
 	std::vector<const char *> get_required_extensions();
-	core::Result<vk::SurfaceKHR> create_surface(const vk::Instance &instance);
+	vk::SurfaceKHR create_surface(const vk::Instance &instance);
 
 	Dimension get_size() const;
 

@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <ranges>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 #include <vulkan/vulkan.hpp>
@@ -30,11 +31,6 @@ const std::vector<const char *> PhysicalDevice::required_device_extensions {
 	vk::KHRSynchronization2ExtensionName,
 	vk::KHRCreateRenderpass2ExtensionName,
 };
-
-PhysicalDevice::PhysicalDevice() : impl(std::make_unique<Impl>()) {}
-PhysicalDevice::~PhysicalDevice() = default;
-PhysicalDevice::PhysicalDevice(PhysicalDevice &&) = default;
-PhysicalDevice &PhysicalDevice::operator=(PhysicalDevice &&) = default;
 
 DeviceSuitableness get_device_suitableness(
 	vk::raii::PhysicalDevice physical_device,
@@ -138,12 +134,11 @@ uint32_t get_device_score(vk::raii::PhysicalDevice device) {
 	return score;
 }
 
-Result<> PhysicalDevice::init(const Instance &instance, const vk::SurfaceKHR &surface_khr) {
-	surface.init(instance, surface_khr);
-
+PhysicalDevice::PhysicalDevice(const Instance &instance, const vk::SurfaceKHR &surface_khr)
+	: impl(std::make_unique<Impl>()), surface(instance, surface_khr) {
 	auto physical_devices = instance.get_physical_devices();
 	if (physical_devices.empty()) {
-		return Error("No GPU that supports Vulkan found");
+		throw std::runtime_error("No GPU that supports Vulkan found");
 	}
 
 	std::unordered_map<vk::raii::PhysicalDevice *, DeviceSuitableness> device_suitableness_map;
@@ -171,13 +166,15 @@ Result<> PhysicalDevice::init(const Instance &instance, const vk::SurfaceKHR &su
 	}
 
 	if (impl->physical_device == nullptr) {
-		return Error("No suitable device found");
+		throw std::runtime_error("No suitable device found");
 	}
 
 	debug_log("Using: {}", impl->physical_device.getProperties().deviceName.data());
-
-	return {};
 }
+
+PhysicalDevice::~PhysicalDevice() = default;
+PhysicalDevice::PhysicalDevice(PhysicalDevice &&) = default;
+PhysicalDevice &PhysicalDevice::operator=(PhysicalDevice &&) = default;
 
 Result<vk::Format> PhysicalDevice::get_depth_format() {
 	std::array<vk::Format, 3> formats {

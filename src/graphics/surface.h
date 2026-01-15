@@ -15,14 +15,12 @@ class Instance;
 
 class Surface {
 public:
-	Surface();
+	Surface(const Instance &instance, const vk::SurfaceKHR &surface);
 	~Surface();
 	Surface(const Surface &) = delete;
 	Surface &operator=(const Surface &) = delete;
 	Surface(Surface &&);
 	Surface &operator=(Surface &&);
-
-	void init(const Instance &instance, const vk::SurfaceKHR &surface);
 
 	const vk::raii::SurfaceKHR &get_surface() const;
 

@@ -26,14 +26,12 @@ class PhysicalDevice;
 
 class Device {
 public:
-	Device(const PhysicalDevice &physical_device);
+	Device(const PhysicalDevice &physical_device, const Instance &instance);
 	~Device();
 	Device(const Device &) = delete;
 	Device &operator=(const Device &) = delete;
 	Device(Device &&);
 	Device &operator=(Device &&) = delete;
-
-	void init(const Instance &instance);
 
 	void submit_graphics(
 		vk::SubmitInfo submit_info,

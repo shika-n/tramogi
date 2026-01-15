@@ -1,19 +1,17 @@
 #include "tramogi/graphics/buffer.h"
+
 #include "allocator.h"
 #include "device.h"
-#include "tramogi/core/errors.h"
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string.h>
 #include <utility>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 namespace tramogi::graphics {
-
-using core::Error;
-using core::Result;
 
 struct Buffer::Impl {
 	vk::raii::Buffer buffer = nullptr;
@@ -49,12 +47,16 @@ vk::raii::Buffer &Buffer::get_buffer() {
 	return impl->buffer;
 }
 
-Buffer::Buffer() : impl(std::make_unique<Impl>()) {};
+Buffer::Buffer(const Device &, uint64_t)
+	: impl(std::make_unique<Impl>()) {
+		  // TODO: Move shared implementation here if possible
+	  };
+
 Buffer::~Buffer() = default;
 Buffer::Buffer(Buffer &&) = default;
 Buffer &Buffer::operator=(Buffer &&) = default;
 
-Result<> StagingBuffer::init(const Device &device, uint64_t size) {
+StagingBuffer::StagingBuffer(const Device &device, uint64_t size) : Buffer(device, size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
@@ -68,16 +70,14 @@ Result<> StagingBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return Error(allocation_result.error());
+		throw std::runtime_error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
 	impl->buffer.bindMemory(impl->memory, 0);
-
-	return {};
 }
 
-Result<> VertexBuffer::init(const Device &device, uint64_t size) {
+VertexBuffer::VertexBuffer(const Device &device, uint64_t size) : Buffer(device, size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
@@ -91,16 +91,14 @@ Result<> VertexBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return Error(allocation_result.error());
+		throw std::runtime_error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
 	impl->buffer.bindMemory(impl->memory, 0);
-
-	return {};
 }
 
-Result<> IndexBuffer::init(const Device &device, uint64_t size) {
+IndexBuffer::IndexBuffer(const Device &device, uint64_t size) : Buffer(device, size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
@@ -114,16 +112,14 @@ Result<> IndexBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return Error(allocation_result.error());
+		throw std::runtime_error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
 	impl->buffer.bindMemory(impl->memory, 0);
-
-	return {};
 }
 
-Result<> UniformBuffer::init(const Device &device, uint64_t size) {
+UniformBuffer::UniformBuffer(const Device &device, uint64_t size) : Buffer(device, size) {
 	vk::BufferCreateInfo create_info {
 		.size = size,
 		.usage = vk::BufferUsageFlagBits::eUniformBuffer,
@@ -137,13 +133,11 @@ Result<> UniformBuffer::init(const Device &device, uint64_t size) {
 	auto allocation_result =
 		allocate_memory(device, impl->buffer.getMemoryRequirements(), impl->memory_type);
 	if (!allocation_result) {
-		return Error(allocation_result.error());
+		throw std::runtime_error(allocation_result.error());
 	}
 
 	impl->memory = std::move(allocation_result.value());
 	impl->buffer.bindMemory(impl->memory, 0);
-
-	return {};
 }
 
 } // namespace tramogi::graphics

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "tramogi/core/errors.h"
 #include <cstdint>
 #include <memory>
 
@@ -18,10 +17,8 @@ class Device;
 
 class Buffer {
 public:
-	Buffer();
+	Buffer(const Device &device, uint64_t size);
 	virtual ~Buffer();
-
-	virtual core::Result<> init(const Device &device, uint64_t size) = 0;
 
 	void upload_data(const void *data);
 
@@ -42,10 +39,8 @@ protected:
 
 class StagingBuffer : public Buffer {
 public:
-	StagingBuffer() = default;
+	StagingBuffer(const Device &device, uint64_t size);
 	~StagingBuffer() = default;
-
-	core::Result<> init(const Device &device, uint64_t size);
 
 	StagingBuffer(const StagingBuffer &) = delete;
 	StagingBuffer &operator=(const StagingBuffer &) = delete;
@@ -55,10 +50,8 @@ public:
 
 class VertexBuffer : public Buffer {
 public:
-	VertexBuffer() = default;
+	VertexBuffer(const Device &device, uint64_t size);
 	~VertexBuffer() = default;
-
-	core::Result<> init(const Device &device, uint64_t size);
 
 	VertexBuffer(const VertexBuffer &) = delete;
 	VertexBuffer &operator=(const VertexBuffer &) = delete;
@@ -68,10 +61,8 @@ public:
 
 class IndexBuffer : public Buffer {
 public:
-	IndexBuffer() = default;
+	IndexBuffer(const Device &device, uint64_t size);
 	~IndexBuffer() = default;
-
-	core::Result<> init(const Device &device, uint64_t size);
 
 	IndexBuffer(const IndexBuffer &) = delete;
 	IndexBuffer &operator=(const IndexBuffer &) = delete;
@@ -81,10 +72,8 @@ public:
 
 class UniformBuffer : public Buffer {
 public:
-	UniformBuffer() = default;
+	UniformBuffer(const Device &device, uint64_t size);
 	~UniformBuffer() = default;
-
-	core::Result<> init(const Device &device, uint64_t size);
 
 	UniformBuffer(const UniformBuffer &) = delete;
 	UniformBuffer &operator=(const UniformBuffer &) = delete;

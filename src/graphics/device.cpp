@@ -36,13 +36,8 @@ struct Device::Impl {
 	}
 };
 
-Device::Device(const PhysicalDevice &physical_device)
-	: impl(std::make_unique<Impl>()), physical_device(physical_device) {}
-Device::~Device() = default;
-Device::Device(Device &&) = default;
-// Device &Device::operator=(Device &&) = default;
-
-void Device::init(const Instance &instance) {
+Device::Device(const PhysicalDevice &physical_device, const Instance &instance)
+	: impl(std::make_unique<Impl>()), physical_device(physical_device) {
 	float priority = 0.0f;
 	vk::DeviceQueueCreateInfo device_queue_create_info {
 		.queueFamilyIndex = physical_device.get_graphics_queue_index(),
@@ -82,6 +77,10 @@ void Device::init(const Instance &instance) {
 
 	impl->init_command_pool(physical_device);
 }
+
+Device::~Device() = default;
+Device::Device(Device &&) = default;
+// Device &Device::operator=(Device &&) = default;
 
 void Device::submit_graphics(
 	vk::SubmitInfo submit_info,

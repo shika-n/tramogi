@@ -1,6 +1,5 @@
 #pragma once
 
-#include "tramogi/core/errors.h"
 #include <memory>
 #include <vector>
 
@@ -13,14 +12,12 @@ namespace tramogi::graphics {
 
 class Instance {
 public:
-	Instance();
+	Instance(const std::vector<const char *> &extensions);
 	~Instance();
 	Instance(const Instance &) = delete;
 	Instance &operator=(const Instance &) = delete;
 	Instance(Instance &&);
 	Instance &operator=(Instance &&);
-
-	core::Result<> init(const std::vector<const char *> &extensions);
 
 	std::vector<vk::raii::PhysicalDevice> get_physical_devices() const;
 
