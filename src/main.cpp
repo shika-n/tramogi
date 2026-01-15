@@ -9,6 +9,7 @@
 #include <expected>
 #include <format>
 #include <functional>
+#include <glm/ext/matrix_float4x4.hpp>
 #include <limits>
 #include <print>
 #include <stdexcept>
@@ -39,6 +40,7 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
 
+#include "engine/camera.h"
 #include "graphics/allocator.h"
 #include "graphics/command_buffer.h"
 #include "graphics/device.h"
@@ -99,7 +101,9 @@ struct UniformBufferObject {
 
 class ProjectSkyHigh {
 public:
-	ProjectSkyHigh() : device(physical_device) {}
+	ProjectSkyHigh() : device(physical_device), camera(1280, 720, glm::radians(90.0f)) {
+		camera.set_position({0, 0, 5});
+	}
 
 	void run() {
 		init_window();
@@ -146,6 +150,8 @@ private:
 	vk::raii::ImageView depth_image_view = nullptr;
 
 	uint32_t current_frame = 0;
+
+	Camera camera;
 
 	Model model;
 
@@ -220,6 +226,9 @@ private:
 		double timer = 0;
 		bool print_fps = false;
 
+		glm::vec2 last_pos;
+		bool drag_first_frame = true;
+
 		while (!window.should_close()) {
 			auto now = std::chrono::high_resolution_clock().now();
 			double delta =
@@ -238,6 +247,20 @@ private:
 			if (key_input.is_pressed(Key::Q)) {
 				window.request_close();
 			}
+
+			if (mouse_input.is_pressed(MouseButton::Middle)) {
+				if (!drag_first_frame) {
+					camera.rotate_to_poi(
+						glm::radians(1.0f * (mouse_input.get_y() - last_pos.y)),
+						glm::radians(1.0f * (mouse_input.get_x() - last_pos.x))
+					);
+				}
+				last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
+			}
+
+			drag_first_frame = !mouse_input.is_pressed(MouseButton::Middle);
+
+			camera.update_view();
 
 			draw_frame(delta);
 
@@ -1299,8 +1322,7 @@ private:
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void update_uniform_buffer(uint32_t current_image, double delta) {
-		static glm::mat4 pos(1.0f);
+	void update_uniform_buffer(uint32_t current_image, [[maybe_unused]] double delta) {
 		static auto start_time = std::chrono::high_resolution_clock::now();
 
 		auto current_time = std::chrono::high_resolution_clock::now();
@@ -1309,25 +1331,16 @@ private:
 		)
 										  .count();
 
-		constexpr float speed = 3.0f;
-
-		if (key_input.is_pressed(Key::W)) {
-			pos = glm::translate(pos, glm::vec3(0.0f, -speed * delta, 0.0f));
-		}
-		if (key_input.is_pressed(Key::A)) {
-			pos = glm::translate(pos, glm::vec3(speed * delta, 0.0f, 0.0f));
-		}
-		if (key_input.is_pressed(Key::S)) {
-			pos = glm::translate(pos, glm::vec3(0.0f, speed * delta, 0.0f));
-		}
-		if (key_input.is_pressed(Key::D)) {
-			pos = glm::translate(pos, glm::vec3(-speed * delta, 0.0f, 0.0f));
-		}
-
 		static glm::vec3 rot;
 		static glm::vec3 pos_translate;
 		{
 			ImGui::Begin("Properties");
+			ImGui::Text(
+				"Camera Position %.3f %.3f %.3f",
+				camera.get_position().x,
+				camera.get_position().y,
+				camera.get_position().z
+			);
 			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f);
 			ImGui::SliderFloat3("Rotation", &rot.x, 0, 360);
 			ImGui::End();
@@ -1338,7 +1351,7 @@ private:
 			glm::rotate(
 				glm::rotate(
 					glm::rotate(
-						glm::translate(pos, pos_translate),
+						glm::translate(glm::mat4(1.0f), pos_translate),
 						glm::radians(rot.z),
 						glm::vec3(0.0f, 0.0f, 1.0f)
 					),
@@ -1350,18 +1363,8 @@ private:
 			),
 			glm::vec3(2.0f)
 		);
-		ubo.view = glm::lookAt(
-			glm::vec3(0.0f, 1.0f, 5.0f),
-			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 1.0f, 0.0f)
-		);
-		ubo.projection = glm::perspective(
-			glm::radians(45.0f),
-			static_cast<float>(swapchain_extent.width) /
-				static_cast<float>(swapchain_extent.height),
-			0.1f,
-			10.0f
-		);
+		ubo.view = camera.get_view();
+		ubo.projection = camera.get_projection();
 		ubo.projection[1][1] *= -1;
 
 		uniform_buffers[current_image].upload_data(&ubo);
@@ -1386,6 +1389,8 @@ private:
 		create_swapchain();
 		create_image_views();
 		create_depth_resources();
+
+		camera.change_perspective(dimension.width, dimension.height, glm::radians(90.0f));
 
 		debug_log("Swapchain resized to {}x{}", dimension.width, dimension.height);
 	}

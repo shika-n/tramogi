@@ -1,4 +1,5 @@
 add_subdirectory(core)
+add_subdirectory(engine)
 add_subdirectory(graphics)
 add_subdirectory(input)
 add_subdirectory(platform)
@@ -22,6 +23,7 @@ target_link_libraries(
 
 		${PROJECT_NAME}-core
 		${PROJECT_NAME}-core-file
+		${PROJECT_NAME}-engine
 		${PROJECT_NAME}-graphics
 		${PROJECT_NAME}-graphics-imgui
 		${PROJECT_NAME}-input
