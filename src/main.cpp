@@ -225,7 +225,10 @@ private:
 				window.request_close();
 			}
 
-			if (mouse_input.is_pressed(MouseButton::Middle)) {
+			bool drag_rotating = mouse_input.is_pressed(MouseButton::Middle) ||
+								 (key_input.is_pressed(Key::Control) &&
+								  mouse_input.is_pressed(MouseButton::Right));
+			if (drag_rotating) {
 				if (!drag_first_frame) {
 					camera.rotate_to_poi(
 						glm::radians(1.0f * (mouse_input.get_y() - last_pos.y)),
@@ -235,7 +238,7 @@ private:
 				last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
 			}
 
-			drag_first_frame = !mouse_input.is_pressed(MouseButton::Middle);
+			drag_first_frame = !drag_rotating;
 
 			camera.update_view();
 			{

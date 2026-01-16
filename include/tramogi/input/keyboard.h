@@ -9,6 +9,12 @@ namespace tramogi::input {
 // Also consider ASCII.
 // TODO: Test on other keyboard layouts and think of another way if necessary.
 enum class Key {
+	Alt = 56,
+	Control = 29,
+	Enter = 28,
+	Shift = 42,
+	Space = 57,
+
 	A = 30,
 	B = 48,
 	C = 46,
