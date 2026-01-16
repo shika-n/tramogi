@@ -53,7 +53,6 @@
 #include "graphics/surface.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
-#include "tramogi/core/io/model.h"
 #include "tramogi/core/logging/logging.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/graphics/imgui/imgui_loader.h"
@@ -142,7 +141,6 @@ private:
 	Keyboard key_input;
 	Mouse mouse_input;
 
-	// Model model;
 	Cube model;
 
 	void init_window() {
@@ -166,7 +164,6 @@ private:
 		create_texture_image();
 		create_texture_image_view();
 		create_texture_sampler();
-		load_model();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
@@ -853,14 +850,6 @@ private:
 		command_buffers = device.allocate_command_buffers(MAX_FRAMES_IN_FLIGHT);
 	}
 
-	void load_model() {
-		// model.load_from_obj_file(MODEL_PATH.c_str());
-		//
-		// debug_log("Loading model done!");
-		// debug_log("  Vertices: {}", model.get_vertices().size());
-		// debug_log("  Indices: {}", model.get_indices().size());
-	}
-
 	void create_vertex_buffer() {
 		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
 
@@ -1194,7 +1183,6 @@ private:
 			nullptr
 		);
 
-		// command_buffers[current_frame].draw(3, 1, 1, 0);
 		command_buffers[current_frame]
 			.get_command_buffer()
 			.drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
@@ -1284,14 +1272,6 @@ private:
 	}
 
 	void update_uniform_buffer(uint32_t current_image, [[maybe_unused]] double delta) {
-		static auto start_time = std::chrono::high_resolution_clock::now();
-
-		auto current_time = std::chrono::high_resolution_clock::now();
-		[[maybe_unused]] float time = std::chrono::duration<float, std::chrono::seconds::period>(
-										  current_time - start_time
-		)
-										  .count();
-
 		static glm::vec3 rot;
 		static glm::vec3 pos_translate;
 		{
