@@ -43,6 +43,7 @@
 #include <imgui.h>
 
 #include "engine/camera.h"
+#include "engine/primitives/cube.h"
 #include "graphics/allocator.h"
 #include "graphics/command_buffer.h"
 #include "graphics/device.h"
@@ -68,6 +69,7 @@ const std::string TEXTURE_PATH = "textures/viking_room.png";
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
 using namespace tramogi::core;
+using namespace tramogi::engine::primitives;
 using namespace tramogi::graphics;
 using namespace tramogi::input;
 using namespace tramogi::platform;
@@ -85,8 +87,8 @@ public:
 	ProjectSkyHigh()
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
-		  device(physical_device, instance), camera(1280, 720, glm::radians(90.0f)) {
-		camera.set_position({0, 0, 5});
+		  device(physical_device, instance), camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
+		camera.set_position({0, 0, -3});
 	}
 
 	void run() {
@@ -137,10 +139,11 @@ private:
 
 	Camera camera;
 
-	Model model;
-
 	Keyboard key_input;
 	Mouse mouse_input;
+
+	// Model model;
+	Cube model;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -475,19 +478,19 @@ private:
 		};
 
 		constexpr vk::VertexInputBindingDescription binding_description =
-			{0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+			{0, sizeof(BasicVertex), vk::VertexInputRate::eVertex};
 		constexpr std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {
 			vk::VertexInputAttributeDescription {
 				0,
 				0,
 				vk::Format::eR32G32B32Sfloat,
-				offsetof(Vertex, position)
+				offsetof(BasicVertex, position)
 			},
 			vk::VertexInputAttributeDescription {
 				1,
 				0,
-				vk::Format::eR32G32Sfloat,
-				offsetof(Vertex, tex_coord)
+				vk::Format::eR32G32B32Sfloat,
+				offsetof(BasicVertex, color)
 			}
 		};
 		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
@@ -851,11 +854,11 @@ private:
 	}
 
 	void load_model() {
-		model.load_from_obj_file(MODEL_PATH.c_str());
-
-		debug_log("Loading model done!");
-		debug_log("  Vertices: {}", model.get_vertices().size());
-		debug_log("  Indices: {}", model.get_indices().size());
+		// model.load_from_obj_file(MODEL_PATH.c_str());
+		//
+		// debug_log("Loading model done!");
+		// debug_log("  Vertices: {}", model.get_vertices().size());
+		// debug_log("  Indices: {}", model.get_indices().size());
 	}
 
 	void create_vertex_buffer() {
@@ -1299,21 +1302,18 @@ private:
 		}
 
 		UniformBufferObject ubo;
-		ubo.model = glm::scale(
+		ubo.model = glm::rotate(
 			glm::rotate(
 				glm::rotate(
-					glm::rotate(
-						glm::translate(glm::mat4(1.0f), pos_translate),
-						glm::radians(rot.z),
-						glm::vec3(0.0f, 0.0f, 1.0f)
-					),
-					glm::radians(rot.y),
-					glm::vec3(0.0f, 1.0f, 0.0f)
+					glm::translate(glm::mat4(1.0f), pos_translate),
+					glm::radians(rot.z),
+					glm::vec3(0.0f, 0.0f, 1.0f)
 				),
-				glm::radians(rot.x + 90.0f),
-				glm::vec3(1.0f, 0.0f, 0.0f)
+				glm::radians(rot.y),
+				glm::vec3(0.0f, 1.0f, 0.0f)
 			),
-			glm::vec3(2.0f)
+			glm::radians(rot.x),
+			glm::vec3(1.0f, 0.0f, 0.0f)
 		);
 		ubo.view = camera.get_view();
 		ubo.projection = camera.get_projection();

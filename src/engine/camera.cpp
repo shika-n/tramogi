@@ -33,13 +33,13 @@ void Camera::update_view() {
 }
 
 void Camera::rotate_to_poi(float angle_x, float angle_y) {
-	glm::qua x_rot = glm::angleAxis(angle_x, glm::normalize(orientation * glm::vec3(-1, 0, 0)));
+	glm::qua x_rot = glm::angleAxis(angle_x, glm::normalize(orientation * glm::vec3(1, 0, 0)));
 	glm::qua y_rot = glm::angleAxis(angle_y, glm::vec3(0, 1, 0));
 	orientation = y_rot * x_rot * orientation;
 
 	float dist = glm::length(position);
 	glm::vec3 forward = glm::normalize(orientation * glm::vec3(0, 0, 1));
-	position = forward * dist;
+	position = forward * -dist;
 }
 
 void Camera::set_position(const glm::vec3 &position) {

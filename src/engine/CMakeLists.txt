@@ -2,6 +2,8 @@ add_library(
 	${PROJECT_NAME}-engine
 	SHARED
 		camera.cpp
+
+		primitives/cube.cpp
 )
 
 target_link_libraries(
