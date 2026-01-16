@@ -87,7 +87,7 @@ public:
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
 		  device(physical_device, instance), camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
-		camera.set_position({0, 0, -3});
+		camera.set_position({0, 0, -8});
 	}
 
 	void run() {
@@ -1185,7 +1185,7 @@ private:
 
 		command_buffers[current_frame]
 			.get_command_buffer()
-			.drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+			.drawIndexed(model.get_indices().size(), 11 * 11 * 11, 0, 0, 0);
 
 		tramogi::graphics::imgui::render(command_buffers[current_frame].get_command_buffer());
 
