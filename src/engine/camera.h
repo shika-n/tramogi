@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <glm/detail/type_quat.hpp>
 #include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/vector_float3.hpp>
 #include <glm/fwd.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -32,7 +33,7 @@ public:
 
 private:
 	glm::vec3 position;
-	glm::quat orientation;
+	glm::quat orientation = glm::identity<glm::quat>();
 
 	glm::mat4 projection;
 	glm::mat4 view;

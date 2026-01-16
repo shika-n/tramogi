@@ -12,7 +12,7 @@
 #include <glm/geometric.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-Camera::Camera(uint32_t width, uint32_t height, float fov) : orientation(0.0f, 0.0f, 0.0f, 1.0f) {
+Camera::Camera(uint32_t width, uint32_t height, float fov) {
 	change_perspective(width, height, fov);
 	update_view();
 }
