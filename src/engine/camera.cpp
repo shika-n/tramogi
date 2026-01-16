@@ -1,4 +1,6 @@
 #include "camera.h"
+#include "tramogi/core/logging/logging.h"
+#include <cmath>
 #include <cstdint>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_float4x4.hpp>
@@ -33,6 +35,11 @@ void Camera::update_view() {
 }
 
 void Camera::rotate_to_poi(float angle_x, float angle_y) {
+	bool is_flipped = std::signbit((orientation * glm::vec3(0, 1, 0)).y);
+	if (is_flipped) {
+		angle_y *= -1;
+	}
+
 	glm::qua x_rot = glm::angleAxis(angle_x, glm::normalize(orientation * glm::vec3(1, 0, 0)));
 	glm::qua y_rot = glm::angleAxis(angle_y, glm::vec3(0, 1, 0));
 	orientation = y_rot * x_rot * orientation;
