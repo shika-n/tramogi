@@ -54,6 +54,7 @@
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/logging/logging.h"
+#include "tramogi/core/types.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/graphics/imgui/imgui_loader.h"
 #include "tramogi/input/keyboard.h"
@@ -364,16 +365,16 @@ private:
 			return capabilities.currentExtent;
 		}
 
-		Dimension dimension = window.get_size();
+		Size dimension = window.get_size();
 
 		return {
 			std::clamp<uint32_t>(
-				dimension.width,
+				dimension.x,
 				capabilities.minImageExtent.width,
 				capabilities.maxImageExtent.width
 			),
 			std::clamp<uint32_t>(
-				dimension.height,
+				dimension.y,
 				capabilities.minImageExtent.height,
 				capabilities.maxImageExtent.height
 			)
@@ -1307,8 +1308,8 @@ private:
 	}
 
 	void recreate_swapchain() {
-		Dimension dimension = window.get_size();
-		while (dimension.width == 0 || dimension.height == 0) {
+		Size dimension = window.get_size();
+		while (dimension.x == 0 || dimension.y == 0) {
 			dimension = window.get_size();
 			window.wait_events();
 		}
@@ -1321,9 +1322,9 @@ private:
 		create_image_views();
 		create_depth_resources();
 
-		camera.change_perspective(dimension.width, dimension.height, glm::radians(90.0f));
+		camera.change_perspective(dimension.x, dimension.y, glm::radians(90.0f));
 
-		debug_log("Swapchain resized to {}x{}", dimension.width, dimension.height);
+		debug_log("Swapchain resized to {}x{}", dimension.x, dimension.y);
 	}
 };
 

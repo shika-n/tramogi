@@ -1,7 +1,7 @@
 #include "allocator.h"
 #include "device.h"
 #include "physical_device.h"
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <cstdint>
 #include <vulkan/vulkan_raii.hpp>
 

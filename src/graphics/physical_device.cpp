@@ -1,8 +1,8 @@
 #include "physical_device.h"
 #include "instance.h"
 #include "surface.h"
-#include "tramogi/core/errors.h"
 #include "tramogi/core/logging/logging.h"
+#include "tramogi/core/types.h"
 #include <algorithm>
 #include <array>
 #include <functional>

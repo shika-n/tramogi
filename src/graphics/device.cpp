@@ -3,7 +3,7 @@
 #include "dispatch_loader.h"
 #include "instance.h"
 #include "physical_device.h"
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <limits>
 #include <memory>
 #include <stdint.h>

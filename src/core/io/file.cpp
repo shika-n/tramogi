@@ -1,4 +1,4 @@
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <fstream>
 #include <vector>
 

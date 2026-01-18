@@ -1,7 +1,7 @@
 #pragma once
 
 #include "surface.h"
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <memory>
 #include <stdint.h>
 #include <vector>

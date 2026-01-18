@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <vector>
 
 namespace tramogi::core {

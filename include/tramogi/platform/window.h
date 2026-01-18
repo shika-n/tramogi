@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tramogi/core/errors.h"
+#include "tramogi/core/types.h"
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -13,11 +13,6 @@ class Instance;
 } // namespace vk
 
 namespace tramogi::platform {
-
-struct Dimension {
-	int width;
-	int height;
-};
 
 // TODO: rule 1-3-5
 class Window {
@@ -41,7 +36,7 @@ public:
 	std::vector<const char *> get_required_extensions();
 	vk::SurfaceKHR create_surface(const vk::Instance &instance);
 
-	Dimension get_size() const;
+	core::Size get_size() const;
 
 	// TODO: Mark as deprecated
 	GLFWwindow *get_glfw_window() const {

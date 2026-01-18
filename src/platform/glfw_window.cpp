@@ -1,7 +1,7 @@
 #include "tramogi/platform/window.h"
 
-#include "tramogi/core/errors.h"
 #include "tramogi/core/logging/logging.h"
+#include "tramogi/core/types.h"
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
@@ -15,6 +15,7 @@ namespace tramogi::platform {
 
 using core::Error;
 using core::Result;
+using core::Size;
 using core::logging::debug_log;
 
 Window::Window(uint32_t width, uint32_t height, const char *title) {
@@ -92,9 +93,9 @@ vk::SurfaceKHR Window::create_surface(const vk::Instance &instance) {
 	return surface;
 }
 
-Dimension Window::get_size() const {
-	Dimension dimension;
-	glfwGetFramebufferSize(window, &dimension.width, &dimension.height);
+Size Window::get_size() const {
+	Size dimension;
+	glfwGetFramebufferSize(window, &dimension.x, &dimension.y);
 	return dimension;
 }
 
