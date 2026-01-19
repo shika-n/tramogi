@@ -48,6 +48,7 @@
 #include "graphics/image.h"
 #include "graphics/instance.h"
 #include "graphics/physical_device.h"
+#include "graphics/shader.h"
 #include "graphics/surface.h"
 #include "graphics/swapchain.h"
 #include "tramogi/core/io/file.h"
@@ -295,23 +296,9 @@ private:
 		}
 		auto shader_code = shader_code_result.value();
 
-		vk::raii::ShaderModule shader_module = create_shader_module(shader_code);
-
-		vk::PipelineShaderStageCreateInfo vertex_stage_create_info {
-			.stage = vk::ShaderStageFlagBits::eVertex,
-			.module = shader_module,
-			.pName = "vert_main",
-		};
-		vk::PipelineShaderStageCreateInfo fragment_stage_create_info {
-			.stage = vk::ShaderStageFlagBits::eFragment,
-			.module = shader_module,
-			.pName = "frag_main",
-		};
-
-		std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stages {
-			vertex_stage_create_info,
-			fragment_stage_create_info,
-		};
+		Shader shader_module(device, shader_code);
+		shader_module.add_vertex_stage("vert_main");
+		shader_module.add_fragment_stage("frag_main");
 
 		std::array<vk::DynamicState, 2> dynamic_states {
 			vk::DynamicState::eViewport,
@@ -407,7 +394,7 @@ private:
 		vk::GraphicsPipelineCreateInfo graphics_pipeline_info {
 			.pNext = &pipeline_rendering_info,
 			.stageCount = 2,
-			.pStages = shader_stages.data(),
+			.pStages = shader_module.get_stages().data(),
 			.pVertexInputState = &vertex_input_info,
 			.pInputAssemblyState = &input_assembly_info,
 			.pViewportState = &viewport_state_info,
@@ -422,15 +409,6 @@ private:
 
 		graphics_pipeline =
 			vk::raii::Pipeline(device.get_device(), nullptr, graphics_pipeline_info);
-	}
-
-	[[nodiscard]] vk::raii::ShaderModule create_shader_module(const std::vector<char> &code) const {
-		vk::ShaderModuleCreateInfo shader_module_create_info {
-			.codeSize = code.size() * sizeof(char),
-			.pCode = reinterpret_cast<const uint32_t *>(code.data()),
-		};
-
-		return vk::raii::ShaderModule(device.get_device(), shader_module_create_info);
 	}
 
 	void create_depth_resources() {

@@ -12,6 +12,7 @@ add_library(
 		image_view.cpp
 		instance.cpp
 		physical_device.cpp
+		shader.cpp
 		surface.cpp
 		swapchain.cpp
 )
