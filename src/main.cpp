@@ -385,30 +385,30 @@ private:
 			throw std::runtime_error(depth_format.error());
 		}
 
-		vk::PipelineRenderingCreateInfo pipeline_rendering_info {
-			.colorAttachmentCount = 1,
-			.pColorAttachmentFormats = &swapchain.get_format(),
-			.depthAttachmentFormat = depth_format.value(),
-		};
+		vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo>
+			pipeline_info {
+				{
+					.stageCount = 2,
+					.pStages = shader_module.get_stages().data(),
+					.pVertexInputState = &vertex_input_info,
+					.pInputAssemblyState = &input_assembly_info,
+					.pViewportState = &viewport_state_info,
+					.pRasterizationState = &rasterization_state_info,
+					.pMultisampleState = &multisample_info,
+					.pDepthStencilState = &depth_stencil_info,
+					.pColorBlendState = &color_blending,
+					.pDynamicState = &dynamic_state_create_info,
+					.layout = pipeline_layout,
+					.renderPass = nullptr,
+				},
+				{
+					.colorAttachmentCount = 1,
+					.pColorAttachmentFormats = &swapchain.get_format(),
+					.depthAttachmentFormat = depth_format.value(),
+				}
+			};
 
-		vk::GraphicsPipelineCreateInfo graphics_pipeline_info {
-			.pNext = &pipeline_rendering_info,
-			.stageCount = 2,
-			.pStages = shader_module.get_stages().data(),
-			.pVertexInputState = &vertex_input_info,
-			.pInputAssemblyState = &input_assembly_info,
-			.pViewportState = &viewport_state_info,
-			.pRasterizationState = &rasterization_state_info,
-			.pMultisampleState = &multisample_info,
-			.pDepthStencilState = &depth_stencil_info,
-			.pColorBlendState = &color_blending,
-			.pDynamicState = &dynamic_state_create_info,
-			.layout = pipeline_layout,
-			.renderPass = nullptr,
-		};
-
-		graphics_pipeline =
-			vk::raii::Pipeline(device.get_device(), nullptr, graphics_pipeline_info);
+		graphics_pipeline = vk::raii::Pipeline(device.get_device(), nullptr, pipeline_info.get());
 	}
 
 	void create_depth_resources() {

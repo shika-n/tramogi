@@ -45,27 +45,26 @@ Device::Device(const PhysicalDevice &physical_device, const Instance &instance)
 		.pQueuePriorities = &priority,
 	};
 	vk::StructureChain<
+		vk::DeviceCreateInfo,
 		vk::PhysicalDeviceFeatures2,
 		vk::PhysicalDeviceVulkan11Features,
 		vk::PhysicalDeviceVulkan13Features,
 		vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
-		feature_chain {
+		device_info {
+			{
+				.queueCreateInfoCount = 1,
+				.pQueueCreateInfos = &device_queue_create_info,
+				.enabledExtensionCount =
+					static_cast<uint32_t>(PhysicalDevice::required_device_extensions.size()),
+				.ppEnabledExtensionNames = PhysicalDevice::required_device_extensions.data(),
+			},
 			{.features = {.samplerAnisotropy = vk::True}},
 			{.shaderDrawParameters = true},
 			{.synchronization2 = true, .dynamicRendering = true},
 			{.extendedDynamicState = true},
 		};
 
-	vk::DeviceCreateInfo device_create_info {
-		.pNext = &feature_chain.get<vk::PhysicalDeviceFeatures2>(),
-		.queueCreateInfoCount = 1,
-		.pQueueCreateInfos = &device_queue_create_info,
-		.enabledExtensionCount =
-			static_cast<uint32_t>(PhysicalDevice::required_device_extensions.size()),
-		.ppEnabledExtensionNames = PhysicalDevice::required_device_extensions.data(),
-	};
-
-	impl->device = vk::raii::Device(physical_device.get_physical_device(), device_create_info);
+	impl->device = vk::raii::Device(physical_device.get_physical_device(), device_info.get());
 	init_loader(instance.get_instance(), impl->device);
 
 	impl->graphics_queue =
