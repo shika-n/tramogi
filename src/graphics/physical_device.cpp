@@ -176,7 +176,7 @@ PhysicalDevice::~PhysicalDevice() = default;
 PhysicalDevice::PhysicalDevice(PhysicalDevice &&) = default;
 PhysicalDevice &PhysicalDevice::operator=(PhysicalDevice &&) = default;
 
-Result<vk::Format> PhysicalDevice::get_depth_format() {
+Result<vk::Format> PhysicalDevice::get_depth_format() const {
 	std::array<vk::Format, 3> formats {
 		vk::Format::eD32Sfloat, // TODO: Add stencil parameter
 		vk::Format::eD32SfloatS8Uint,

@@ -46,7 +46,7 @@ public:
 		return device_suitableness.present_queue_index;
 	}
 
-	core::Result<vk::Format> get_depth_format();
+	core::Result<vk::Format> get_depth_format() const;
 
 	const vk::raii::PhysicalDevice &get_physical_device() const;
 	const vk::raii::SurfaceKHR &get_surface() const {
