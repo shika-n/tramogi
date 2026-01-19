@@ -48,6 +48,7 @@
 #include "graphics/command_buffer.h"
 #include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
+#include "graphics/image.h"
 #include "graphics/instance.h"
 #include "graphics/physical_device.h"
 #include "graphics/surface.h"
@@ -131,9 +132,7 @@ private:
 	vk::raii::ImageView texture_image_view = nullptr;
 	vk::raii::Sampler texture_sampler = nullptr;
 
-	vk::raii::Image depth_image = nullptr;
-	vk::raii::DeviceMemory depth_memory = nullptr;
-	vk::raii::ImageView depth_image_view = nullptr;
+	std::unique_ptr<ImageViewPair<DepthImage>> depth_image;
 
 	uint32_t current_frame = 0;
 
@@ -596,26 +595,12 @@ private:
 	}
 
 	void create_depth_resources() {
-		Result<vk::Format> depth_format = physical_device.get_depth_format();
-		if (!depth_format) {
-			throw std::runtime_error(depth_format.error());
-		}
-		create_image(
+		depth_image = std::make_unique<ImageViewPair<DepthImage>>(
+			physical_device,
+			device,
 			swapchain_extent.width,
 			swapchain_extent.height,
-			1,
-			depth_format.value(),
-			vk::ImageTiling::eOptimal,
-			vk::ImageUsageFlagBits::eDepthStencilAttachment,
-			vk::MemoryPropertyFlagBits::eDeviceLocal,
-			depth_image,
-			depth_memory
-		);
-		depth_image_view = create_image_view(
-			depth_image,
-			depth_format.value(),
-			vk::ImageAspectFlagBits::eDepth,
-			1
+			false
 		);
 	}
 
@@ -1114,18 +1099,7 @@ private:
 			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 			vk::ImageAspectFlagBits::eColor
 		);
-		transition_image_layout(
-			*depth_image,
-			vk::ImageLayout::eUndefined,
-			vk::ImageLayout::eDepthAttachmentOptimal,
-			vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-			vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-			vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-				vk::PipelineStageFlagBits2::eLateFragmentTests,
-			vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-				vk::PipelineStageFlagBits2::eLateFragmentTests,
-			vk::ImageAspectFlagBits::eDepth
-		);
+		depth_image->get_image().as_depth_target(command_buffers[current_frame]);
 
 		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
 		vk::ClearValue clear_depth = vk::ClearDepthStencilValue(1.0f, 0);
@@ -1137,7 +1111,7 @@ private:
 			.clearValue = clear_color,
 		};
 		vk::RenderingAttachmentInfo depth_attachment_info {
-			.imageView = depth_image_view,
+			.imageView = depth_image->get_image_view().get_image_view(),
 			.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
 			.loadOp = vk::AttachmentLoadOp::eClear,
 			.storeOp = vk::AttachmentStoreOp::eDontCare,

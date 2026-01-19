@@ -8,6 +8,8 @@ add_library(
 		command_buffer.cpp
 		device.cpp
 		dispatch_loader.cpp
+		image.cpp
+		image_view.cpp
 		instance.cpp
 		physical_device.cpp
 		surface.cpp
