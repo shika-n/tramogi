@@ -1096,7 +1096,8 @@ private:
 	}
 
 	void record_command_buffer(uint32_t image_index) {
-		command_buffers[current_frame].begin();
+		CommandBuffer &command_buffer = command_buffers[current_frame];
+		command_buffer.begin();
 
 		transition_image_layout(
 			swapchain_images[image_index],
@@ -1150,33 +1151,26 @@ private:
 			.pDepthAttachment = &depth_attachment_info,
 		};
 
-		command_buffers[current_frame].get_command_buffer().beginRendering(rendering_info);
+		command_buffer.get_command_buffer().beginRendering(rendering_info);
 
-		command_buffers[current_frame].get_command_buffer().bindPipeline(
+		command_buffer.get_command_buffer().bindPipeline(
 			vk::PipelineBindPoint::eGraphics,
 			graphics_pipeline
 		);
-		command_buffers[current_frame].get_command_buffer().setViewport(
+		command_buffer.get_command_buffer().setViewport(
 			0,
 			vk::Viewport(0.0f, 0.0f, swapchain_extent.width, swapchain_extent.height, 0.0f, 1.0f)
 		);
-		command_buffers[current_frame].get_command_buffer().setScissor(
+		command_buffer.get_command_buffer().setScissor(
 			0,
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
 		);
 
-		command_buffers[current_frame].get_command_buffer().bindVertexBuffers(
-			0,
-			*vertex_buffer->get_buffer(),
-			{0}
-		);
-		command_buffers[current_frame].get_command_buffer().bindIndexBuffer(
-			*index_buffer->get_buffer(),
-			0,
-			vk::IndexType::eUint32
-		);
+		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
+		command_buffer.get_command_buffer()
+			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
 
-		command_buffers[current_frame].get_command_buffer().bindDescriptorSets(
+		command_buffer.get_command_buffer().bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
 			pipeline_layout,
 			0,
@@ -1184,13 +1178,12 @@ private:
 			nullptr
 		);
 
-		command_buffers[current_frame]
-			.get_command_buffer()
+		command_buffer.get_command_buffer()
 			.drawIndexed(model.get_indices().size(), 11 * 11 * 11, 0, 0, 0);
 
-		tramogi::graphics::imgui::render(command_buffers[current_frame].get_command_buffer());
+		tramogi::graphics::imgui::render(command_buffer.get_command_buffer());
 
-		command_buffers[current_frame].get_command_buffer().endRendering();
+		command_buffer.get_command_buffer().endRendering();
 
 		transition_image_layout(
 			swapchain_images[image_index],
@@ -1203,7 +1196,7 @@ private:
 			vk::ImageAspectFlagBits::eColor
 		);
 
-		command_buffers[current_frame].end();
+		command_buffer.end();
 	}
 
 	void draw_frame(double delta) {
