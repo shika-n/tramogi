@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -10,7 +9,6 @@
 #include <format>
 #include <functional>
 #include <imgui_internal.h>
-#include <limits>
 #include <memory>
 #include <print>
 #include <stdexcept>
@@ -277,50 +275,6 @@ private:
 		tramogi::graphics::imgui::cleanup();
 	}
 
-	vk::SurfaceFormatKHR choose_swap_surface_format(
-		const std::vector<vk::SurfaceFormatKHR> &available_formats
-	) {
-		for (const auto &format : available_formats) {
-			if (format.format == vk::Format::eB8G8R8A8Srgb &&
-				format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-				return format;
-			}
-		}
-		return available_formats[0];
-	}
-
-	vk::PresentModeKHR choose_present_mode(
-		const std::vector<vk::PresentModeKHR> &available_present_mode
-	) {
-		for (const auto &mode : available_present_mode) {
-			if (mode == vk::PresentModeKHR::eMailbox) {
-				return mode;
-			}
-		}
-		return vk::PresentModeKHR::eFifo;
-	}
-
-	vk::Extent2D choose_swap_extent(const vk::SurfaceCapabilitiesKHR &capabilities) {
-		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-			return capabilities.currentExtent;
-		}
-
-		Size dimension = window.get_size();
-
-		return {
-			std::clamp<uint32_t>(
-				dimension.x,
-				capabilities.minImageExtent.width,
-				capabilities.maxImageExtent.width
-			),
-			std::clamp<uint32_t>(
-				dimension.y,
-				capabilities.minImageExtent.height,
-				capabilities.maxImageExtent.height
-			)
-		};
-	}
-
 	vk::raii::ImageView create_image_view(
 		vk::Image image,
 		vk::Format format,
@@ -511,10 +465,6 @@ private:
 		};
 
 		return vk::raii::ShaderModule(device.get_device(), shader_module_create_info);
-	}
-
-	bool has_stencil_component(vk::Format format) {
-		return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
 	}
 
 	void create_depth_resources() {
