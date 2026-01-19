@@ -2,8 +2,8 @@
 
 #include "device.h"
 #include "image.h"
-#include "vulkan/vulkan.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -22,6 +22,28 @@ ImageView::ImageView(const Device &device, const Image &image) : impl(std::make_
 			.aspectMask = image.get_aspect_flags(),
 			.baseMipLevel = 0,
 			.levelCount = image.get_mipmap_level(),
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		}
+	};
+	impl->image_view = vk::raii::ImageView(device.get_device(), view_info);
+}
+ImageView::ImageView(
+	const Device &device,
+	vk::Image image,
+	vk::Format format,
+	vk::ImageAspectFlags aspect_flags,
+	uint32_t mipmap_level_count
+)
+	: impl(std::make_unique<Impl>()) {
+	vk::ImageViewCreateInfo view_info {
+		.image = image,
+		.viewType = vk::ImageViewType::e2D,
+		.format = format,
+		.subresourceRange = {
+			.aspectMask = aspect_flags,
+			.baseMipLevel = 0,
+			.levelCount = mipmap_level_count,
 			.baseArrayLayer = 0,
 			.layerCount = 1,
 		}

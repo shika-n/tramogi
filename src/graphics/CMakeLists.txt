@@ -13,6 +13,7 @@ add_library(
 		instance.cpp
 		physical_device.cpp
 		surface.cpp
+		swapchain.cpp
 )
 
 target_link_libraries(

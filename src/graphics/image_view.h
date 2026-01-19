@@ -1,11 +1,19 @@
 #pragma once
 
 #include <concepts>
+#include <cstdint>
 #include <memory>
 
-namespace vk::raii {
+namespace vk {
+class Image;
+enum class Format;
+template <class T> class Flags;
+enum class ImageAspectFlagBits : uint32_t;
+using ImageAspectFlags = Flags<ImageAspectFlagBits>;
+namespace raii {
 class ImageView;
 }
+} // namespace vk
 
 namespace tramogi::graphics {
 
@@ -16,6 +24,13 @@ class PhysicalDevice;
 class ImageView {
 public:
 	ImageView(const Device &device, const Image &image);
+	ImageView(
+		const Device &device,
+		vk::Image image,
+		vk::Format format,
+		vk::ImageAspectFlags aspect_flags,
+		uint32_t mipmap_level_count
+	);
 	~ImageView();
 	ImageView(const ImageView &) = delete;
 	ImageView &operator=(const ImageView &) = delete;

@@ -52,6 +52,7 @@
 #include "graphics/instance.h"
 #include "graphics/physical_device.h"
 #include "graphics/surface.h"
+#include "graphics/swapchain.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/logging/logging.h"
@@ -88,7 +89,8 @@ public:
 	ProjectSkyHigh()
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
-		  device(physical_device, instance), camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
+		  device(physical_device, instance), swpchain(physical_device, device, window.get_size()),
+		  camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
 		camera.set_position({0, 0, -8});
 	}
 
@@ -107,11 +109,7 @@ private:
 	PhysicalDevice physical_device;
 	Device device;
 
-	vk::SurfaceFormatKHR swapchain_surface_format {};
-	vk::Extent2D swapchain_extent {};
-	vk::raii::SwapchainKHR swapchain = nullptr;
-	std::vector<vk::Image> swapchain_images;
-	std::vector<vk::raii::ImageView> swapchain_image_views;
+	Swapchain swpchain;
 
 	vk::raii::DescriptorSetLayout descriptor_set_layout = nullptr;
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
@@ -158,8 +156,6 @@ private:
 	}
 
 	void init_vulkan() {
-		create_swapchain();
-		create_image_views();
 		create_descriptor_layout();
 		create_graphics_pipeline();
 		create_depth_resources();
@@ -179,7 +175,7 @@ private:
 
 		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
 		dynamic_render_info.colorAttachmentCount = 1;
-		dynamic_render_info.pColorAttachmentFormats = &swapchain_surface_format.format;
+		dynamic_render_info.pColorAttachmentFormats = &swpchain.get_format();
 		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
 
 		ImGui_ImplVulkan_InitInfo imgui_info {};
@@ -278,67 +274,7 @@ private:
 	}
 
 	void cleanup() {
-		cleanup_swapchain();
-
 		tramogi::graphics::imgui::cleanup();
-	}
-
-	void create_swapchain() {
-		auto surface_capabilities = physical_device.get_surface_capabilities();
-		std::vector<vk::SurfaceFormatKHR> available_formats = physical_device.get_surface_formats();
-		std::vector<vk::PresentModeKHR> available_present_mode =
-			physical_device.get_surface_present_modes();
-
-		swapchain_surface_format = choose_swap_surface_format(available_formats);
-		swapchain_extent = choose_swap_extent(surface_capabilities);
-		auto min_image_count = std::max(3u, surface_capabilities.minImageCount);
-
-		if (surface_capabilities.maxImageCount > 0 &&
-			min_image_count > surface_capabilities.minImageCount) {
-			min_image_count = surface_capabilities.maxImageCount;
-		}
-
-		uint32_t image_count = surface_capabilities.minImageCount + 1;
-		if (surface_capabilities.maxImageCount > 0 &&
-			image_count > surface_capabilities.maxImageCount) {
-			image_count = surface_capabilities.maxImageCount;
-		}
-
-		vk::SwapchainCreateInfoKHR swapchain_create_info {
-			.flags = vk::SwapchainCreateFlagsKHR(),
-			.surface = physical_device.get_surface(),
-			.minImageCount = min_image_count,
-			.imageFormat = swapchain_surface_format.format,
-			.imageColorSpace = swapchain_surface_format.colorSpace,
-			.imageExtent = swapchain_extent,
-			.imageArrayLayers = 1,
-			.imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
-			.imageSharingMode = vk::SharingMode::eExclusive,
-			.preTransform = surface_capabilities.currentTransform,
-			.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
-			.presentMode = choose_present_mode(available_present_mode),
-			.clipped = vk::True,
-			.oldSwapchain = nullptr,
-		};
-
-		if (physical_device.get_graphics_queue_index() !=
-			physical_device.get_present_queue_index()) {
-			std::array<uint32_t, 2> indices {
-				physical_device.get_graphics_queue_index(),
-				physical_device.get_present_queue_index()
-			};
-
-			swapchain_create_info.imageSharingMode = vk::SharingMode::eConcurrent;
-			swapchain_create_info.queueFamilyIndexCount = 2;
-			swapchain_create_info.pQueueFamilyIndices = indices.data();
-		} else {
-			swapchain_create_info.imageSharingMode = vk::SharingMode::eExclusive;
-			swapchain_create_info.queueFamilyIndexCount = 0;
-			swapchain_create_info.pQueueFamilyIndices = nullptr;
-		}
-
-		swapchain = vk::raii::SwapchainKHR(device.get_device(), swapchain_create_info);
-		swapchain_images = swapchain.getImages();
 	}
 
 	vk::SurfaceFormatKHR choose_swap_surface_format(
@@ -404,19 +340,6 @@ private:
 			}
 		};
 		return vk::raii::ImageView(device.get_device(), view_info);
-	}
-
-	void create_image_views() {
-		swapchain_image_views.clear();
-		swapchain_image_views.reserve(swapchain_images.size());
-		for (const auto &image : swapchain_images) {
-			swapchain_image_views.emplace_back(create_image_view(
-				image,
-				swapchain_surface_format.format,
-				vk::ImageAspectFlagBits::eColor,
-				1
-			));
-		}
 	}
 
 	void create_descriptor_layout() {
@@ -557,7 +480,7 @@ private:
 
 		vk::PipelineRenderingCreateInfo pipeline_rendering_info {
 			.colorAttachmentCount = 1,
-			.pColorAttachmentFormats = &swapchain_surface_format.format,
+			.pColorAttachmentFormats = &swpchain.get_format(),
 			.depthAttachmentFormat = depth_format.value(),
 		};
 
@@ -598,8 +521,8 @@ private:
 		depth_image = std::make_unique<ImageViewPair<DepthImage>>(
 			physical_device,
 			device,
-			swapchain_extent.width,
-			swapchain_extent.height,
+			swpchain.get_extent().width,
+			swpchain.get_extent().height,
 			false
 		);
 	}
@@ -1090,7 +1013,7 @@ private:
 		command_buffer.begin();
 
 		transition_image_layout(
-			swapchain_images[image_index],
+			swpchain.get_image(image_index),
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eColorAttachmentOptimal,
 			{},
@@ -1104,7 +1027,7 @@ private:
 		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
 		vk::ClearValue clear_depth = vk::ClearDepthStencilValue(1.0f, 0);
 		vk::RenderingAttachmentInfo attachment_info {
-			.imageView = swapchain_image_views[image_index],
+			.imageView = swpchain.get_image_view(image_index).get_image_view(),
 			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
 			.loadOp = vk::AttachmentLoadOp::eClear,
 			.storeOp = vk::AttachmentStoreOp::eStore,
@@ -1122,7 +1045,7 @@ private:
 			.renderArea =
 				{
 					.offset = {0, 0},
-					.extent = swapchain_extent,
+					.extent = swpchain.get_extent(),
 				},
 			.layerCount = 1,
 			.colorAttachmentCount = 1,
@@ -1138,11 +1061,18 @@ private:
 		);
 		command_buffer.get_command_buffer().setViewport(
 			0,
-			vk::Viewport(0.0f, 0.0f, swapchain_extent.width, swapchain_extent.height, 0.0f, 1.0f)
+			vk::Viewport(
+				0.0f,
+				0.0f,
+				swpchain.get_extent().width,
+				swpchain.get_extent().height,
+				0.0f,
+				1.0f
+			)
 		);
 		command_buffer.get_command_buffer().setScissor(
 			0,
-			vk::Rect2D(vk::Offset2D(0, 0), swapchain_extent)
+			vk::Rect2D(vk::Offset2D(0, 0), swpchain.get_extent())
 		);
 
 		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
@@ -1165,7 +1095,7 @@ private:
 		command_buffer.get_command_buffer().endRendering();
 
 		transition_image_layout(
-			swapchain_images[image_index],
+			swpchain.get_image(image_index),
 			vk::ImageLayout::eColorAttachmentOptimal,
 			vk::ImageLayout::ePresentSrcKHR,
 			vk::AccessFlagBits2::eColorAttachmentWrite,
@@ -1180,65 +1110,46 @@ private:
 
 	void draw_frame(double delta) {
 		device.wait_idle(current_frame);
-		try {
-			auto [result, image_index] = swapchain.acquireNextImage(
-				UINT64_MAX,
-				*device.get_present_semaphore(current_frame),
-				nullptr
-			);
+		auto image_index = swpchain.get_next_image(current_frame);
 
-			if (result == vk::Result::eErrorOutOfDateKHR) {
-				recreate_swapchain();
-				return;
-			}
+		if (!image_index) {
+			recreate_swapchain();
+			return;
+		}
 
-			if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
-				throw std::runtime_error("Failed to acquire swapchain image");
-			}
+		command_buffers[current_frame].get_command_buffer().reset();
 
-			command_buffers[current_frame].get_command_buffer().reset();
+		update_uniform_buffer(current_frame, delta);
+		record_command_buffer(image_index.value());
+		device.reset_fence(current_frame);
 
-			update_uniform_buffer(current_frame, delta);
-			record_command_buffer(image_index);
-			device.reset_fence(current_frame);
+		vk::PipelineStageFlags wait_destination_stage_mask(
+			vk::PipelineStageFlagBits::eColorAttachmentOutput
+		);
+		const vk::SubmitInfo submit_info {
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &*device.get_present_semaphore(current_frame),
+			.pWaitDstStageMask = &wait_destination_stage_mask,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &*command_buffers[current_frame].get_command_buffer(),
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &*device.get_render_semaphore(current_frame),
+		};
 
-			vk::PipelineStageFlags wait_destination_stage_mask(
-				vk::PipelineStageFlagBits::eColorAttachmentOutput
-			);
-			const vk::SubmitInfo submit_info {
-				.waitSemaphoreCount = 1,
-				.pWaitSemaphores = &*device.get_present_semaphore(current_frame),
-				.pWaitDstStageMask = &wait_destination_stage_mask,
-				.commandBufferCount = 1,
-				.pCommandBuffers = &*command_buffers[current_frame].get_command_buffer(),
-				.signalSemaphoreCount = 1,
-				.pSignalSemaphores = &*device.get_render_semaphore(current_frame),
-			};
+		device.submit_graphics(submit_info, current_frame, true);
 
-			device.submit_graphics(submit_info, current_frame, true);
+		vk::PresentInfoKHR present_info {
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &*device.get_render_semaphore(current_frame),
+			.swapchainCount = 1,
+			.pSwapchains = &*swpchain.get_swapchain(),
+			.pImageIndices = &image_index.value(),
+		};
 
-			vk::PresentInfoKHR present_info {
-				.waitSemaphoreCount = 1,
-				.pWaitSemaphores = &*device.get_render_semaphore(current_frame),
-				.swapchainCount = 1,
-				.pSwapchains = &*swapchain,
-				.pImageIndices = &image_index,
-			};
-
-			auto present_result = device.present(present_info);
-			if (!present_result || window.resized) {
-				window.resized = false;
-				recreate_swapchain();
-			} else if (result != vk::Result::eSuccess) {
-				throw std::runtime_error("Failed to present swapchain image");
-			}
-		} catch (const vk::SystemError &e) {
-			if (e.code().value() == static_cast<int>(vk::Result::eErrorOutOfDateKHR)) {
-				recreate_swapchain();
-				return;
-			} else {
-				throw e;
-			}
+		auto present_result = device.present(present_info);
+		if (!present_result || window.resized) {
+			window.resized = false;
+			recreate_swapchain();
 		}
 
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -1274,11 +1185,6 @@ private:
 		uniform_buffers[current_image].upload_data(&ubo);
 	}
 
-	void cleanup_swapchain() {
-		swapchain_images.clear();
-		swapchain = nullptr;
-	}
-
 	void recreate_swapchain() {
 		Size dimension = window.get_size();
 		while (dimension.x == 0 || dimension.y == 0) {
@@ -1288,10 +1194,8 @@ private:
 
 		device.wait_idle(current_frame);
 
-		cleanup_swapchain();
+		swpchain.recreate(dimension);
 
-		create_swapchain();
-		create_image_views();
 		create_depth_resources();
 
 		camera.change_perspective(dimension.x, dimension.y, glm::radians(90.0f));

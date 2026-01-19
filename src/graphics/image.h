@@ -23,6 +23,7 @@ class Device;
 class ImageView;
 class PhysicalDevice;
 
+// TODO: A wrapper for swapchain's image to use transition
 class Image {
 public:
 	Image(
