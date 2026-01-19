@@ -18,6 +18,7 @@ namespace tramogi::graphics {
 class Device;
 class ImageView;
 class PhysicalDevice;
+class SwapchainImage;
 
 class Swapchain {
 public:
@@ -38,7 +39,7 @@ public:
 	const vk::raii::SwapchainKHR &get_swapchain() const;
 	const vk::Format &get_format() const;
 	const vk::Extent2D &get_extent() const;
-	const vk::Image &get_image(uint32_t index) const;
+	const SwapchainImage &get_image(uint32_t index) const;
 	const ImageView &get_image_view(uint32_t index) const;
 
 private:

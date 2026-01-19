@@ -3,6 +3,7 @@
 #include "image_view.h"
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace vk {
 template <class T> class Flags;
@@ -23,7 +24,6 @@ class Device;
 class ImageView;
 class PhysicalDevice;
 
-// TODO: A wrapper for swapchain's image to use transition
 class Image {
 public:
 	Image(
@@ -39,9 +39,6 @@ public:
 	Image &operator=(const Image &) = delete;
 	Image(Image &&);
 	Image &operator=(Image &&);
-
-	void as_color_target(const CommandBuffer &cmd);
-	void as_present_source(const CommandBuffer &cmd);
 
 	const vk::raii::Image &get_image() const;
 	vk::Format get_format() const;
@@ -78,6 +75,25 @@ public:
 
 	void as_depth_target(const CommandBuffer &cmd);
 	vk::ImageAspectFlags get_aspect_flags() const;
+};
+
+class SwapchainImage {
+public:
+	SwapchainImage(vk::Image image);
+	~SwapchainImage();
+	SwapchainImage(const SwapchainImage &) = delete;
+	SwapchainImage &operator=(const SwapchainImage &) = delete;
+	SwapchainImage(SwapchainImage &&);
+	SwapchainImage &operator=(SwapchainImage &&);
+
+	void as_attachment(const CommandBuffer &cmd) const;
+	void as_present_source(const CommandBuffer &cmd) const;
+
+	vk::Image get_image() const;
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> impl;
 };
 
 } // namespace tramogi::graphics

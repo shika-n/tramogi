@@ -30,14 +30,14 @@ ImageView::ImageView(const Device &device, const Image &image) : impl(std::make_
 }
 ImageView::ImageView(
 	const Device &device,
-	vk::Image image,
+	const SwapchainImage &image,
 	vk::Format format,
 	vk::ImageAspectFlags aspect_flags,
 	uint32_t mipmap_level_count
 )
 	: impl(std::make_unique<Impl>()) {
 	vk::ImageViewCreateInfo view_info {
-		.image = image,
+		.image = image.get_image(),
 		.viewType = vk::ImageViewType::e2D,
 		.format = format,
 		.subresourceRange = {

@@ -1,5 +1,6 @@
 #include "swapchain.h"
 #include "device.h"
+#include "image.h"
 #include "image_view.h"
 #include "physical_device.h"
 #include "tramogi/core/types.h"
@@ -21,7 +22,7 @@ struct Swapchain::Impl {
 	vk::Extent2D extent;
 	vk::SurfaceFormatKHR surface_format;
 	vk::raii::SwapchainKHR swapchain = nullptr;
-	std::vector<vk::Image> images;
+	std::vector<SwapchainImage> images;
 	std::vector<ImageView> image_views;
 
 	void create_image_views(const Device &device) {
@@ -179,7 +180,11 @@ void Swapchain::recreate(const Size &window_size) {
 	}
 
 	impl->swapchain = vk::raii::SwapchainKHR(device.get_device(), swapchain_create_info);
-	impl->images = impl->swapchain.getImages();
+	std::vector<vk::Image> images = impl->swapchain.getImages();
+	impl->images.reserve(images.size());
+	for (auto image : images) {
+		impl->images.push_back(image);
+	}
 
 	impl->create_image_views(device);
 }
@@ -196,7 +201,7 @@ const vk::Extent2D &Swapchain::get_extent() const {
 	return impl->extent;
 }
 
-const vk::Image &Swapchain::get_image(uint32_t index) const {
+const SwapchainImage &Swapchain::get_image(uint32_t index) const {
 	return impl->images[index];
 }
 

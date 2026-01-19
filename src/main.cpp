@@ -970,58 +970,11 @@ private:
 		device.submit(cmd);
 	}
 
-	void transition_image_layout(
-		vk::Image image,
-		vk::ImageLayout old_layout,
-		vk::ImageLayout new_layout,
-		vk::AccessFlags2 src_access_mask,
-		vk::AccessFlags2 dst_access_mask,
-		vk::PipelineStageFlags2 src_stage_mask,
-		vk::PipelineStageFlags2 dst_stage_mask,
-		vk::ImageAspectFlags aspect_flags
-	) {
-		vk::ImageMemoryBarrier2 barrier = {
-			.srcStageMask = src_stage_mask,
-			.srcAccessMask = src_access_mask,
-			.dstStageMask = dst_stage_mask,
-			.dstAccessMask = dst_access_mask,
-			.oldLayout = old_layout,
-			.newLayout = new_layout,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = image,
-			.subresourceRange = {
-				.aspectMask = aspect_flags,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			}
-		};
-
-		vk::DependencyInfo dependency_info {
-			.dependencyFlags = {},
-			.imageMemoryBarrierCount = 1,
-			.pImageMemoryBarriers = &barrier,
-		};
-
-		command_buffers[current_frame].get_command_buffer().pipelineBarrier2(dependency_info);
-	}
-
 	void record_command_buffer(uint32_t image_index) {
 		CommandBuffer &command_buffer = command_buffers[current_frame];
 		command_buffer.begin();
 
-		transition_image_layout(
-			swapchain.get_image(image_index),
-			vk::ImageLayout::eUndefined,
-			vk::ImageLayout::eColorAttachmentOptimal,
-			{},
-			vk::AccessFlagBits2::eColorAttachmentWrite,
-			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-			vk::ImageAspectFlagBits::eColor
-		);
+		swapchain.get_image(image_index).as_attachment(command_buffer);
 		depth_image->get_image().as_depth_target(command_buffers[current_frame]);
 
 		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1094,16 +1047,7 @@ private:
 
 		command_buffer.get_command_buffer().endRendering();
 
-		transition_image_layout(
-			swapchain.get_image(image_index),
-			vk::ImageLayout::eColorAttachmentOptimal,
-			vk::ImageLayout::ePresentSrcKHR,
-			vk::AccessFlagBits2::eColorAttachmentWrite,
-			{},
-			vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-			vk::PipelineStageFlagBits2::eBottomOfPipe,
-			vk::ImageAspectFlagBits::eColor
-		);
+		swapchain.get_image(image_index).as_present_source(command_buffer);
 
 		command_buffer.end();
 	}

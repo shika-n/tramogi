@@ -5,6 +5,7 @@
 #include "image_view.h"
 #include "physical_device.h"
 #include "tramogi/core/types.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -23,48 +24,49 @@ struct Image::Impl {
 	vk::raii::DeviceMemory memory = nullptr;
 
 	vk::Format format;
-
-	void transition_image_layout(
-		const CommandBuffer &cmd,
-		vk::ImageLayout old_layout,
-		vk::ImageLayout new_layout,
-		vk::AccessFlags2 src_access_mask,
-		vk::AccessFlags2 dst_access_mask,
-		vk::PipelineStageFlags2 src_stage_mask,
-		vk::PipelineStageFlags2 dst_stage_mask,
-		vk::ImageAspectFlags aspect_flags
-	) {
-		vk::ImageMemoryBarrier2 barrier = {
-			.srcStageMask = src_stage_mask,
-			.srcAccessMask = src_access_mask,
-			.dstStageMask = dst_stage_mask,
-			.dstAccessMask = dst_access_mask,
-			.oldLayout = old_layout,
-			.newLayout = new_layout,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = image,
-			.subresourceRange = {
-				.aspectMask = aspect_flags,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			}
-		};
-
-		vk::DependencyInfo dependency_info {
-			.dependencyFlags = {},
-			.imageMemoryBarrierCount = 1,
-			.pImageMemoryBarriers = &barrier,
-		};
-
-		cmd.get_command_buffer().pipelineBarrier2(dependency_info);
-	}
 };
 
 uint32_t calculate_mipmap_levels(uint32_t width, uint32_t height) {
 	return std::max(std::log2(width), std::log2(height));
+}
+
+void transition_image_layout(
+	const CommandBuffer &cmd,
+	vk::Image image,
+	vk::ImageLayout old_layout,
+	vk::ImageLayout new_layout,
+	vk::AccessFlags2 src_access_mask,
+	vk::AccessFlags2 dst_access_mask,
+	vk::PipelineStageFlags2 src_stage_mask,
+	vk::PipelineStageFlags2 dst_stage_mask,
+	vk::ImageAspectFlags aspect_flags
+) {
+	vk::ImageMemoryBarrier2 barrier = {
+		.srcStageMask = src_stage_mask,
+		.srcAccessMask = src_access_mask,
+		.dstStageMask = dst_stage_mask,
+		.dstAccessMask = dst_access_mask,
+		.oldLayout = old_layout,
+		.newLayout = new_layout,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = {
+			.aspectMask = aspect_flags,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		}
+	};
+
+	vk::DependencyInfo dependency_info {
+		.dependencyFlags = {},
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers = &barrier,
+	};
+
+	cmd.get_command_buffer().pipelineBarrier2(dependency_info);
 }
 
 Image::Image() : impl(std::make_unique<Impl>()) {}
@@ -108,32 +110,6 @@ Image::Image(
 Image::~Image() = default;
 Image::Image(Image &&) = default;
 Image &Image::operator=(Image &&) = default;
-
-void Image::as_color_target(const CommandBuffer &cmd) {
-	impl->transition_image_layout(
-		cmd,
-		vk::ImageLayout::eUndefined,
-		vk::ImageLayout::eColorAttachmentOptimal,
-		{},
-		vk::AccessFlagBits2::eColorAttachmentWrite,
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor
-	);
-}
-
-void Image::as_present_source(const CommandBuffer &cmd) {
-	impl->transition_image_layout(
-		cmd,
-		vk::ImageLayout::eColorAttachmentOptimal,
-		vk::ImageLayout::ePresentSrcKHR,
-		vk::AccessFlagBits2::eColorAttachmentWrite,
-		{},
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::PipelineStageFlagBits2::eBottomOfPipe,
-		vk::ImageAspectFlagBits::eColor
-	);
-}
 
 const vk::raii::Image &Image::get_image() const {
 	return impl->image;
@@ -187,8 +163,9 @@ DepthImage::DepthImage(
 }
 
 void DepthImage::as_depth_target(const CommandBuffer &cmd) {
-	impl->transition_image_layout(
+	transition_image_layout(
 		cmd,
+		impl->image,
 		vk::ImageLayout::eUndefined,
 		vk::ImageLayout::eDepthAttachmentOptimal,
 		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
@@ -203,6 +180,48 @@ void DepthImage::as_depth_target(const CommandBuffer &cmd) {
 
 vk::ImageAspectFlags DepthImage::get_aspect_flags() const {
 	return vk::ImageAspectFlagBits::eDepth;
+}
+
+struct SwapchainImage::Impl {
+	vk::Image image;
+};
+
+SwapchainImage::SwapchainImage(vk::Image image) : impl(std::make_unique<Impl>()) {
+	impl->image = image;
+}
+SwapchainImage::~SwapchainImage() = default;
+SwapchainImage::SwapchainImage(SwapchainImage &&) = default;
+SwapchainImage &SwapchainImage::operator=(SwapchainImage &&) = default;
+
+void SwapchainImage::as_attachment(const CommandBuffer &cmd) const {
+	transition_image_layout(
+		cmd,
+		impl->image,
+		vk::ImageLayout::eUndefined,
+		vk::ImageLayout::eColorAttachmentOptimal,
+		{},
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::ImageAspectFlagBits::eColor
+	);
+}
+void SwapchainImage::as_present_source(const CommandBuffer &cmd) const {
+	transition_image_layout(
+		cmd,
+		impl->image,
+		vk::ImageLayout::eColorAttachmentOptimal,
+		vk::ImageLayout::ePresentSrcKHR,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		{},
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits2::eBottomOfPipe,
+		vk::ImageAspectFlagBits::eColor
+	);
+}
+
+vk::Image SwapchainImage::get_image() const {
+	return impl->image;
 }
 
 } // namespace tramogi::graphics

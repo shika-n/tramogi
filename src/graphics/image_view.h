@@ -20,13 +20,14 @@ namespace tramogi::graphics {
 class Device;
 class Image;
 class PhysicalDevice;
+class SwapchainImage;
 
 class ImageView {
 public:
 	ImageView(const Device &device, const Image &image);
 	ImageView(
 		const Device &device,
-		vk::Image image,
+		const SwapchainImage &image,
 		vk::Format format,
 		vk::ImageAspectFlags aspect_flags,
 		uint32_t mipmap_level_count
