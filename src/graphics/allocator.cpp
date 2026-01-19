@@ -31,6 +31,8 @@ core::Result<vk::raii::DeviceMemory> allocate_memory(
 	vk::MemoryRequirements memory_requirements,
 	MemoryType memory_type
 ) {
+	assert(memory_requirements.size > 0 && "Allocating with size 0 is not valid");
+
 	auto properties = vk::MemoryPropertyFlagBits::eHostVisible |
 					  vk::MemoryPropertyFlagBits::eHostCoherent;
 	if (memory_type == MemoryType::Gpu) {
