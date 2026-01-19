@@ -89,7 +89,7 @@ public:
 	ProjectSkyHigh()
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
-		  device(physical_device, instance), swpchain(physical_device, device, window.get_size()),
+		  device(physical_device, instance), swapchain(physical_device, device, window.get_size()),
 		  camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
 		camera.set_position({0, 0, -8});
 	}
@@ -109,7 +109,7 @@ private:
 	PhysicalDevice physical_device;
 	Device device;
 
-	Swapchain swpchain;
+	Swapchain swapchain;
 
 	vk::raii::DescriptorSetLayout descriptor_set_layout = nullptr;
 	vk::raii::PipelineLayout pipeline_layout = nullptr;
@@ -175,7 +175,7 @@ private:
 
 		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
 		dynamic_render_info.colorAttachmentCount = 1;
-		dynamic_render_info.pColorAttachmentFormats = &swpchain.get_format();
+		dynamic_render_info.pColorAttachmentFormats = &swapchain.get_format();
 		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
 
 		ImGui_ImplVulkan_InitInfo imgui_info {};
@@ -480,7 +480,7 @@ private:
 
 		vk::PipelineRenderingCreateInfo pipeline_rendering_info {
 			.colorAttachmentCount = 1,
-			.pColorAttachmentFormats = &swpchain.get_format(),
+			.pColorAttachmentFormats = &swapchain.get_format(),
 			.depthAttachmentFormat = depth_format.value(),
 		};
 
@@ -521,8 +521,8 @@ private:
 		depth_image = std::make_unique<ImageViewPair<DepthImage>>(
 			physical_device,
 			device,
-			swpchain.get_extent().width,
-			swpchain.get_extent().height,
+			swapchain.get_extent().width,
+			swapchain.get_extent().height,
 			false
 		);
 	}
@@ -1013,7 +1013,7 @@ private:
 		command_buffer.begin();
 
 		transition_image_layout(
-			swpchain.get_image(image_index),
+			swapchain.get_image(image_index),
 			vk::ImageLayout::eUndefined,
 			vk::ImageLayout::eColorAttachmentOptimal,
 			{},
@@ -1027,7 +1027,7 @@ private:
 		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
 		vk::ClearValue clear_depth = vk::ClearDepthStencilValue(1.0f, 0);
 		vk::RenderingAttachmentInfo attachment_info {
-			.imageView = swpchain.get_image_view(image_index).get_image_view(),
+			.imageView = swapchain.get_image_view(image_index).get_image_view(),
 			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
 			.loadOp = vk::AttachmentLoadOp::eClear,
 			.storeOp = vk::AttachmentStoreOp::eStore,
@@ -1045,7 +1045,7 @@ private:
 			.renderArea =
 				{
 					.offset = {0, 0},
-					.extent = swpchain.get_extent(),
+					.extent = swapchain.get_extent(),
 				},
 			.layerCount = 1,
 			.colorAttachmentCount = 1,
@@ -1064,15 +1064,15 @@ private:
 			vk::Viewport(
 				0.0f,
 				0.0f,
-				swpchain.get_extent().width,
-				swpchain.get_extent().height,
+				swapchain.get_extent().width,
+				swapchain.get_extent().height,
 				0.0f,
 				1.0f
 			)
 		);
 		command_buffer.get_command_buffer().setScissor(
 			0,
-			vk::Rect2D(vk::Offset2D(0, 0), swpchain.get_extent())
+			vk::Rect2D(vk::Offset2D(0, 0), swapchain.get_extent())
 		);
 
 		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
@@ -1095,7 +1095,7 @@ private:
 		command_buffer.get_command_buffer().endRendering();
 
 		transition_image_layout(
-			swpchain.get_image(image_index),
+			swapchain.get_image(image_index),
 			vk::ImageLayout::eColorAttachmentOptimal,
 			vk::ImageLayout::ePresentSrcKHR,
 			vk::AccessFlagBits2::eColorAttachmentWrite,
@@ -1110,7 +1110,7 @@ private:
 
 	void draw_frame(double delta) {
 		device.wait_idle(current_frame);
-		auto image_index = swpchain.get_next_image(current_frame);
+		auto image_index = swapchain.get_next_image(current_frame);
 
 		if (!image_index) {
 			recreate_swapchain();
@@ -1142,7 +1142,7 @@ private:
 			.waitSemaphoreCount = 1,
 			.pWaitSemaphores = &*device.get_render_semaphore(current_frame),
 			.swapchainCount = 1,
-			.pSwapchains = &*swpchain.get_swapchain(),
+			.pSwapchains = &*swapchain.get_swapchain(),
 			.pImageIndices = &image_index.value(),
 		};
 
@@ -1194,7 +1194,7 @@ private:
 
 		device.wait_idle(current_frame);
 
-		swpchain.recreate(dimension);
+		swapchain.recreate(dimension);
 
 		create_depth_resources();
 
