@@ -144,6 +144,8 @@ private:
 
 	Cube model;
 
+	bool is_imgui_visible = false;
+
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
 			key_input.set_key(scancode, is_pressed);
@@ -217,10 +219,13 @@ private:
 
 			tramogi::graphics::imgui::next_frame();
 
-			if (key_input.is_pressed(Key::P)) {
+			if (key_input.is_pressed(Key::F3)) {
 				print_fps = !print_fps;
 				debug_log("Print FPS: {}", print_fps);
-				key_input.consume_key(tramogi::input::Key::P);
+				key_input.consume_key(tramogi::input::Key::F3);
+			} else if (key_input.is_pressed(Key::F4)) {
+				is_imgui_visible = !is_imgui_visible;
+				key_input.consume_key(Key::F4);
 			}
 			if (key_input.is_pressed(Key::Q)) {
 				window.request_close();
@@ -242,7 +247,7 @@ private:
 			drag_first_frame = !drag_rotating;
 
 			camera.update_view();
-			{
+			if (is_imgui_visible) {
 				ImGui::Begin("Misc");
 				ImGui::Text(
 					"Position %.3f %.3f %.3f",
@@ -1268,10 +1273,10 @@ private:
 	void update_uniform_buffer(uint32_t current_image, [[maybe_unused]] double delta) {
 		static glm::vec3 rot;
 		static glm::vec3 pos_translate;
-		{
+		if (is_imgui_visible) {
 			ImGui::Begin("Properties");
-			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f);
-			ImGui::SliderFloat3("Rotation", &rot.x, 0, 360);
+			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f, 0, 0, "%0.1f");
+			ImGui::DragFloat3("Rotation", &rot.x, 0.1f, 0, 360, "%.1f");
 			ImGui::End();
 		}
 
