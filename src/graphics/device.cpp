@@ -98,13 +98,14 @@ Result<> Device::present(vk::PresentInfoKHR present_info) {
 	try {
 		vk::Result result = impl->present_queue.presentKHR(present_info);
 		if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
-			return Error("Present out of dat");
+			return Error("Present out of date");
 		}
 	} catch (const vk::SystemError &e) {
-		if (e.code().value() == static_cast<int>(vk::Result::eErrorOutOfDateKHR)) {
-			return Error("Present out of dat");
+		if (e.code().value() == static_cast<int>(vk::Result::eErrorOutOfDateKHR) ||
+			e.code().value() == static_cast<int>(vk::Result::eSuboptimalKHR)) {
+			return Error("Present out of date");
 		} else {
-			return Error("Unexpected present error");
+			throw std::runtime_error("Unexpected present result");
 		}
 	}
 
