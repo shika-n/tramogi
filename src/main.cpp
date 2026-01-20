@@ -666,7 +666,7 @@ private:
 		if (is_imgui_visible) {
 			ImGui::Begin("Properties");
 			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f, 0, 0, "%0.1f");
-			ImGui::DragFloat3("Rotation", &rot.x, 0.1f, 0, 360, "%.1f");
+			ImGui::DragFloat3("Rotation", &rot.x, 0.2f, 0, 360, "%.1f");
 			ImGui::End();
 		}
 
