@@ -6,15 +6,20 @@ add_library(
 		allocator.cpp
 		buffer.cpp
 		command_buffer.cpp
+		descriptor.cpp
+		descriptor_layout.cpp
+		descriptor_pool.cpp
 		device.cpp
 		dispatch_loader.cpp
 		image.cpp
 		image_view.cpp
 		instance.cpp
 		physical_device.cpp
+		pipeline.cpp
 		shader.cpp
 		surface.cpp
 		swapchain.cpp
+		vertex_descriptor.cpp
 )
 
 target_link_libraries(

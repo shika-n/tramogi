@@ -1,5 +1,7 @@
 #include "device.h"
 #include "command_buffer.h"
+#include "descriptor.h"
+#include "descriptor_pool.h"
 #include "dispatch_loader.h"
 #include "instance.h"
 #include "physical_device.h"
@@ -140,6 +142,25 @@ std::vector<CommandBuffer> Device::allocate_command_buffers(uint32_t count) cons
 	}
 
 	return command_buffers;
+}
+
+std::vector<DescriptorSet> Device::allocate_descriptor_sets(
+	const DescriptorPool &descriptor_pool,
+	const DescriptorLayout &descriptor_set_layout,
+	uint32_t count
+) const {
+	std::vector<vk::DescriptorSetLayout> layouts(count, descriptor_set_layout.get_layout());
+	vk::DescriptorSetAllocateInfo allocate_info {
+		.descriptorPool = descriptor_pool.get_descriptor_pool(),
+		.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+		.pSetLayouts = layouts.data(),
+	};
+
+	std::vector<DescriptorSet> descriptor_sets;
+	for (auto &descriptor_set : impl->device.allocateDescriptorSets(allocate_info)) {
+		descriptor_sets.emplace_back(std::move(descriptor_set));
+	}
+	return descriptor_sets;
 }
 
 void Device::wait_idle(uint32_t frame_index) const {

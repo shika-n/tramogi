@@ -21,6 +21,9 @@ class Queue;
 namespace tramogi::graphics {
 
 class CommandBuffer;
+class DescriptorLayout;
+class DescriptorPool;
+class DescriptorSet;
 class Instance;
 class PhysicalDevice;
 
@@ -43,6 +46,11 @@ public:
 
 	CommandBuffer allocate_command_buffer() const;
 	std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;
+	std::vector<DescriptorSet> allocate_descriptor_sets(
+		const DescriptorPool &descriptor_pool,
+		const DescriptorLayout &descriptor_set_layout,
+		uint32_t count
+	) const;
 
 	void wait_idle(uint32_t frame_index) const;
 	void wait_graphics_queue() const;

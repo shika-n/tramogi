@@ -8,7 +8,6 @@
 #include <expected>
 #include <format>
 #include <functional>
-#include <imgui_internal.h>
 #include <memory>
 #include <print>
 #include <stdexcept>
@@ -35,22 +34,26 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/trigonometric.hpp>
 
-#include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_vulkan.h>
 #include <imgui.h>
+#include <imgui_impl_vulkan.h>
+#include <imgui_internal.h>
 
 #include "engine/camera.h"
 #include "engine/primitives/cube.h"
 #include "graphics/allocator.h"
 #include "graphics/command_buffer.h"
+#include "graphics/descriptor.h"
+#include "graphics/descriptor_pool.h"
 #include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
 #include "graphics/image.h"
 #include "graphics/instance.h"
 #include "graphics/physical_device.h"
+#include "graphics/pipeline.h"
 #include "graphics/shader.h"
 #include "graphics/surface.h"
 #include "graphics/swapchain.h"
+#include "graphics/vertex_descriptor.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
@@ -85,6 +88,7 @@ public:
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
 		  device(physical_device, instance), swapchain(physical_device, device, window.get_size()),
+		  descriptor_pool(device, MAX_FRAMES_IN_FLIGHT + 1), descriptor_set_layout(device, binds),
 		  camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
 		camera.set_position({0, 0, -8});
 	}
@@ -106,20 +110,32 @@ private:
 
 	Swapchain swapchain;
 
-	vk::raii::DescriptorSetLayout descriptor_set_layout = nullptr;
-	vk::raii::PipelineLayout pipeline_layout = nullptr;
-	vk::raii::Pipeline graphics_pipeline = nullptr;
-
 	std::vector<CommandBuffer> command_buffers;
 
 	std::unique_ptr<VertexBuffer> vertex_buffer;
 	std::unique_ptr<IndexBuffer> index_buffer;
 	std::vector<UniformBuffer> uniform_buffers;
 
-	vk::raii::DescriptorPool descriptor_pool = nullptr;
-	std::vector<vk::raii::DescriptorSet> descriptor_sets;
+	DescriptorPool descriptor_pool;
+	DescriptorLayout descriptor_set_layout;
+	std::vector<DescriptorSet> descriptor_sets;
+
+	std::unique_ptr<Pipeline> pipeline;
 
 	std::unique_ptr<ImageViewPair<DepthImage>> depth_image;
+
+	constexpr static std::array<DescriptorLayoutBinding, 2> binds = {
+		DescriptorLayoutBinding {
+			.location = 0,
+			.stage = DescriptorLayoutBinding::Stage::Vertex,
+			.type = DescriptorLayoutBinding::Type::UniformbBuffer,
+		},
+		DescriptorLayoutBinding {
+			.location = 1,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
+	};
 
 	uint32_t current_frame = 0;
 
@@ -145,13 +161,11 @@ private:
 	}
 
 	void init_vulkan() {
-		create_descriptor_layout();
 		create_graphics_pipeline();
 		create_depth_resources();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
-		create_descriptor_pool();
 		create_descriptor_sets();
 		create_command_buffers();
 	}
@@ -170,7 +184,7 @@ private:
 		imgui_info.Device = *device.get_device();
 		imgui_info.QueueFamily = physical_device.get_graphics_queue_index();
 		imgui_info.Queue = *device.get_graphics_queue();
-		imgui_info.DescriptorPool = *descriptor_pool;
+		imgui_info.DescriptorPool = *descriptor_pool.get_descriptor_pool();
 		imgui_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
 		imgui_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
 		imgui_info.UseDynamicRendering = true;
@@ -263,32 +277,6 @@ private:
 		tramogi::graphics::imgui::cleanup();
 	}
 
-	void create_descriptor_layout() {
-		std::array bindings = {
-			vk::DescriptorSetLayoutBinding {
-				.binding = 0,
-				.descriptorType = vk::DescriptorType::eUniformBuffer,
-				.descriptorCount = 1,
-				.stageFlags = vk::ShaderStageFlagBits::eVertex,
-				.pImmutableSamplers = nullptr,
-			},
-			vk::DescriptorSetLayoutBinding {
-				.binding = 1,
-				.descriptorType = vk::DescriptorType::eCombinedImageSampler,
-				.descriptorCount = 1,
-				.stageFlags = vk::ShaderStageFlagBits::eFragment,
-				.pImmutableSamplers = nullptr,
-			}
-		};
-
-		vk::DescriptorSetLayoutCreateInfo layout_info {
-			.bindingCount = bindings.size(),
-			.pBindings = bindings.data(),
-		};
-
-		descriptor_set_layout = vk::raii::DescriptorSetLayout(device.get_device(), layout_info);
-	}
-
 	void create_graphics_pipeline() {
 		auto shader_code_result = read_shader_file("shaders/slang.spv");
 		if (!shader_code_result) {
@@ -300,115 +288,25 @@ private:
 		shader_module.add_vertex_stage("vert_main");
 		shader_module.add_fragment_stage("frag_main");
 
-		std::array<vk::DynamicState, 2> dynamic_states {
-			vk::DynamicState::eViewport,
-			vk::DynamicState::eScissor,
-		};
-		vk::PipelineDynamicStateCreateInfo dynamic_state_create_info {
-			.dynamicStateCount = dynamic_states.size(),
-			.pDynamicStates = dynamic_states.data(),
-		};
+		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, sizeof(BasicVertex));
+		vertex_descriptor.add_attributes({
+			.location = 0,
+			.format = AttributeDescription::Format::Float3,
+			.offset = offsetof(BasicVertex, position),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 1,
+			.format = AttributeDescription::Format::Float3,
+			.offset = offsetof(BasicVertex, color),
+		});
 
-		constexpr vk::VertexInputBindingDescription binding_description =
-			{0, sizeof(BasicVertex), vk::VertexInputRate::eVertex};
-		constexpr std::array<vk::VertexInputAttributeDescription, 2> attribute_descriptions = {
-			vk::VertexInputAttributeDescription {
-				0,
-				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(BasicVertex, position)
-			},
-			vk::VertexInputAttributeDescription {
-				1,
-				0,
-				vk::Format::eR32G32B32Sfloat,
-				offsetof(BasicVertex, color)
-			}
-		};
-		vk::PipelineVertexInputStateCreateInfo vertex_input_info {
-			.vertexBindingDescriptionCount = 1,
-			.pVertexBindingDescriptions = &binding_description,
-			.vertexAttributeDescriptionCount = attribute_descriptions.size(),
-			.pVertexAttributeDescriptions = attribute_descriptions.data(),
-		};
-		vk::PipelineInputAssemblyStateCreateInfo input_assembly_info {
-			.topology = vk::PrimitiveTopology::eTriangleList
-		};
-
-		vk::PipelineViewportStateCreateInfo viewport_state_info {
-			.viewportCount = 1,
-			.scissorCount = 1,
-		};
-		vk::PipelineRasterizationStateCreateInfo rasterization_state_info {
-			.depthClampEnable = vk::False,
-			.rasterizerDiscardEnable = vk::False,
-			.polygonMode = vk::PolygonMode::eFill,
-			.cullMode = vk::CullModeFlagBits::eBack,
-			.frontFace = vk::FrontFace::eCounterClockwise,
-			.depthBiasEnable = vk::False,
-			.depthBiasSlopeFactor = 1,
-			.lineWidth = 1,
-		};
-		vk::PipelineMultisampleStateCreateInfo multisample_info {
-			.rasterizationSamples = vk::SampleCountFlagBits::e1,
-			.sampleShadingEnable = vk::False,
-		};
-		vk::PipelineColorBlendAttachmentState color_blend_attachment {
-			.blendEnable = vk::False,
-			.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-							  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
-		};
-		vk::PipelineDepthStencilStateCreateInfo depth_stencil_info {
-			.depthTestEnable = vk::True,
-			.depthWriteEnable = vk::True,
-			.depthCompareOp = vk::CompareOp::eLess,
-			.depthBoundsTestEnable = vk::False,
-			.stencilTestEnable = vk::False,
-		};
-		vk::PipelineColorBlendStateCreateInfo color_blending {
-			.logicOpEnable = vk::False,
-			.logicOp = vk::LogicOp::eCopy,
-			.attachmentCount = 1,
-			.pAttachments = &color_blend_attachment,
-		};
-
-		vk::PipelineLayoutCreateInfo pipeline_layout_info {
-			.setLayoutCount = 1,
-			.pSetLayouts = &*descriptor_set_layout,
-			.pushConstantRangeCount = 0,
-		};
-
-		pipeline_layout = vk::raii::PipelineLayout(device.get_device(), pipeline_layout_info);
-
-		auto depth_format = physical_device.get_depth_format();
-		if (!depth_format) {
-			throw std::runtime_error(depth_format.error());
-		}
-
-		vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo>
-			pipeline_info {
-				{
-					.stageCount = 2,
-					.pStages = shader_module.get_stages().data(),
-					.pVertexInputState = &vertex_input_info,
-					.pInputAssemblyState = &input_assembly_info,
-					.pViewportState = &viewport_state_info,
-					.pRasterizationState = &rasterization_state_info,
-					.pMultisampleState = &multisample_info,
-					.pDepthStencilState = &depth_stencil_info,
-					.pColorBlendState = &color_blending,
-					.pDynamicState = &dynamic_state_create_info,
-					.layout = pipeline_layout,
-					.renderPass = nullptr,
-				},
-				{
-					.colorAttachmentCount = 1,
-					.pColorAttachmentFormats = &swapchain.get_format(),
-					.depthAttachmentFormat = depth_format.value(),
-				}
-			};
-
-		graphics_pipeline = vk::raii::Pipeline(device.get_device(), nullptr, pipeline_info.get());
+		pipeline = std::make_unique<Pipeline>(
+			device,
+			descriptor_set_layout,
+			shader_module,
+			swapchain,
+			vertex_descriptor
+		);
 	}
 
 	void create_depth_resources() {
@@ -461,39 +359,12 @@ private:
 		}
 	}
 
-	void create_descriptor_pool() {
-		std::array pool_sizes {
-			vk::DescriptorPoolSize {
-				.type = vk::DescriptorType::eUniformBuffer,
-				.descriptorCount = MAX_FRAMES_IN_FLIGHT,
-			},
-			vk::DescriptorPoolSize {
-				.type = vk::DescriptorType::eCombinedImageSampler,
-				.descriptorCount = MAX_FRAMES_IN_FLIGHT + 1,
-			},
-		};
-
-		vk::DescriptorPoolCreateInfo pool_info {
-			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-			.maxSets = MAX_FRAMES_IN_FLIGHT + 1,
-			.poolSizeCount = pool_sizes.size(),
-			.pPoolSizes = pool_sizes.data(),
-		};
-
-		descriptor_pool = vk::raii::DescriptorPool(device.get_device(), pool_info);
-	}
-
 	void create_descriptor_sets() {
-		descriptor_sets.clear();
-
-		std::vector<vk::DescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, *descriptor_set_layout);
-		vk::DescriptorSetAllocateInfo allocate_info {
-			.descriptorPool = descriptor_pool,
-			.descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-			.pSetLayouts = layouts.data(),
-		};
-
-		descriptor_sets = device.get_device().allocateDescriptorSets(allocate_info);
+		descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			descriptor_set_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vk::DescriptorBufferInfo buffer_info {
@@ -503,7 +374,7 @@ private:
 			};
 			std::array descriptor_writes {
 				vk::WriteDescriptorSet {
-					.dstSet = descriptor_sets[i],
+					.dstSet = descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 0,
 					.dstArrayElement = 0,
 					.descriptorCount = 1,
@@ -571,7 +442,7 @@ private:
 
 		command_buffer.get_command_buffer().bindPipeline(
 			vk::PipelineBindPoint::eGraphics,
-			graphics_pipeline
+			pipeline->get_pipeline()
 		);
 		command_buffer.get_command_buffer().setViewport(
 			0,
@@ -595,9 +466,9 @@ private:
 
 		command_buffer.get_command_buffer().bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
-			pipeline_layout,
+			pipeline->get_layout(),
 			0,
-			*descriptor_sets[current_frame],
+			*descriptor_sets[current_frame].get_descriptor_set(),
 			nullptr
 		);
 
