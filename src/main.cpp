@@ -8,6 +8,7 @@
 #include <expected>
 #include <format>
 #include <functional>
+#include <glm/matrix.hpp>
 #include <memory>
 #include <print>
 #include <stdexcept>
@@ -80,6 +81,8 @@ struct UniformBufferObject {
 	glm::mat4 projection;
 	glm::mat4 view;
 	glm::mat4 model;
+	glm::mat4 model_normal;
+	glm::vec3 camera_position;
 };
 
 class ProjectSkyHigh {
@@ -124,16 +127,11 @@ private:
 
 	std::unique_ptr<ImageViewPair<DepthImage>> depth_image;
 
-	constexpr static std::array<DescriptorLayoutBinding, 2> binds = {
+	constexpr static std::array<DescriptorLayoutBinding, 1> binds = {
 		DescriptorLayoutBinding {
 			.location = 0,
-			.stage = DescriptorLayoutBinding::Stage::Vertex,
+			.stage = DescriptorLayoutBinding::Stage::VertexFragment,
 			.type = DescriptorLayoutBinding::Type::UniformbBuffer,
-		},
-		DescriptorLayoutBinding {
-			.location = 1,
-			.stage = DescriptorLayoutBinding::Stage::Fragment,
-			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
 	};
 
@@ -299,6 +297,11 @@ private:
 			.format = AttributeDescription::Format::Float3,
 			.offset = offsetof(BasicVertex, color),
 		});
+		vertex_descriptor.add_attributes({
+			.location = 2,
+			.format = AttributeDescription::Format::Float3,
+			.offset = offsetof(BasicVertex, normal),
+		});
 
 		pipeline = std::make_unique<Pipeline>(
 			device,
@@ -351,7 +354,7 @@ private:
 		uniform_buffers.clear();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
+			uint32_t buffer_size = sizeof(UniformBufferObject);
 			UniformBuffer ubo(device, buffer_size);
 			ubo.map();
 
@@ -367,10 +370,12 @@ private:
 		);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			vk::DescriptorBufferInfo buffer_info {
-				.buffer = uniform_buffers[i].get_buffer(),
-				.offset = 0,
-				.range = sizeof(UniformBufferObject),
+			std::array<vk::DescriptorBufferInfo, 1> buffer_info {
+				vk::DescriptorBufferInfo {
+					.buffer = uniform_buffers[i].get_buffer(),
+					.offset = 0,
+					.range = sizeof(UniformBufferObject),
+				},
 			};
 			std::array descriptor_writes {
 				vk::WriteDescriptorSet {
@@ -379,7 +384,7 @@ private:
 					.dstArrayElement = 0,
 					.descriptorCount = 1,
 					.descriptorType = vk::DescriptorType::eUniformBuffer,
-					.pBufferInfo = &buffer_info,
+					.pBufferInfo = buffer_info.data(),
 				},
 			};
 			device.get_device().updateDescriptorSets(descriptor_writes, {});
@@ -541,22 +546,27 @@ private:
 			ImGui::End();
 		}
 
-		UniformBufferObject ubo;
-		ubo.model = glm::rotate(
-			glm::rotate(
+		UniformBufferObject ubo {
+			.projection = camera.get_projection(),
+			.view = camera.get_view(),
+			.model = glm::rotate(
 				glm::rotate(
-					glm::translate(glm::mat4(1.0f), pos_translate),
-					glm::radians(rot.z),
-					glm::vec3(0.0f, 0.0f, 1.0f)
+					glm::rotate(
+						glm::translate(glm::mat4(1.0f), pos_translate),
+						glm::radians(rot.z),
+						glm::vec3(0.0f, 0.0f, 1.0f)
+					),
+					glm::radians(rot.y),
+					glm::vec3(0.0f, 1.0f, 0.0f)
 				),
-				glm::radians(rot.y),
-				glm::vec3(0.0f, 1.0f, 0.0f)
+				glm::radians(rot.x),
+				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
-			glm::radians(rot.x),
-			glm::vec3(1.0f, 0.0f, 0.0f)
-		);
-		ubo.view = camera.get_view();
-		ubo.projection = camera.get_projection();
+			.model_normal = glm::identity<glm::mat4>(),
+			.camera_position = camera.get_position(),
+		};
+
+		ubo.model_normal = glm::transpose(glm::inverse(ubo.model));
 
 		uniform_buffers[current_image].upload_data(&ubo);
 	}

@@ -18,8 +18,10 @@ class Device;
 
 struct DescriptorLayoutBinding {
 	enum class Stage {
-		Vertex,
-		Fragment
+		Vertex = 1,
+		Fragment = 1 << 1,
+
+		VertexFragment = Vertex | Fragment,
 	};
 
 	enum class Type {

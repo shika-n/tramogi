@@ -12,6 +12,8 @@ struct DescriptorPool::Impl {
 
 DescriptorPool::DescriptorPool(const Device &device, uint32_t max_set)
 	: impl(std::make_unique<Impl>()) {
+
+	// TODO: Don't hard code descriptorCount
 	std::array pool_sizes {
 		vk::DescriptorPoolSize {
 			.type = vk::DescriptorType::eUniformBuffer,
