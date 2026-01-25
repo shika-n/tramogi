@@ -2,6 +2,8 @@
 #include "device.h"
 #include <cstdint>
 #include <memory>
+#include <utility>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 namespace tramogi::graphics {
@@ -17,7 +19,8 @@ vk::DescriptorType to_vk(DescriptorLayoutBinding::Type type) {
 	case DescriptorLayoutBinding::Type::UniformbBuffer:
 		return vk::DescriptorType::eUniformBuffer;
 	}
-	throw std::runtime_error("Unknown type for DescriptorLayoutBinding::Type");
+	assert(false && "Unknown type for DescriptorLayoutBinding::Type");
+	std::unreachable();
 }
 
 vk::ShaderStageFlags to_vk(DescriptorLayoutBinding::Stage stage) {
@@ -26,8 +29,11 @@ vk::ShaderStageFlags to_vk(DescriptorLayoutBinding::Stage stage) {
 		return vk::ShaderStageFlagBits::eFragment;
 	case DescriptorLayoutBinding::Stage::Vertex:
 		return vk::ShaderStageFlagBits::eVertex;
+	case DescriptorLayoutBinding::Stage::VertexFragment:
+		return vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
 	}
-	throw std::runtime_error("Unknown stage for DescriptorLayoutBinding::Stage");
+	assert(false && "Unknown stage for DescriptorLayoutBinding::Stage");
+	std::unreachable();
 }
 
 DescriptorLayout::DescriptorLayout(
