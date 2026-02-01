@@ -5,7 +5,9 @@
 #include "dispatch_loader.h"
 #include "instance.h"
 #include "physical_device.h"
+#include "swapchain.h"
 #include "tramogi/core/types.h"
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <stdint.h>
@@ -83,19 +85,47 @@ Device::~Device() = default;
 Device::Device(Device &&) = default;
 // Device &Device::operator=(Device &&) = default;
 
-void Device::submit_graphics(
-	vk::SubmitInfo submit_info,
-	uint32_t frame_index,
-	bool wait_for_fence
-) {
-	if (wait_for_fence) {
-		impl->graphics_queue.submit(submit_info, impl->fences[frame_index]);
-	} else {
-		impl->graphics_queue.submit(submit_info, nullptr);
-	}
+void Device::submit_graphics_single(const CommandBuffer &command_buffer) {
+	assert(
+		command_buffer.get_type() == CommandBufferType::OneTime &&
+		"Only CommandBuffer of type OneTime maybe submitted with submit_graphics_single()"
+	);
+
+	wait_graphics_queue();
+	vk::SubmitInfo submit_info {
+		.commandBufferCount = 1,
+		.pCommandBuffers = &*command_buffer.get_command_buffer(),
+	};
+	impl->graphics_queue.submit(submit_info);
 }
 
-Result<> Device::present(vk::PresentInfoKHR present_info) {
+void Device::submit_graphics(const CommandBuffer &command_buffer, uint32_t frame_index) {
+	vk::PipelineStageFlags wait_destination_stage_mask(
+		vk::PipelineStageFlagBits::eColorAttachmentOutput
+	);
+
+	const vk::SubmitInfo submit_info {
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &*impl->present_semaphores[frame_index],
+		.pWaitDstStageMask = &wait_destination_stage_mask,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &*command_buffer.get_command_buffer(),
+		.signalSemaphoreCount = 1,
+		.pSignalSemaphores = &*impl->render_semaphores[frame_index],
+	};
+
+	impl->graphics_queue.submit(submit_info, impl->fences[frame_index]);
+}
+
+Result<> Device::present(const Swapchain &swapchain, uint32_t image_index, uint32_t frame_index) {
+	vk::PresentInfoKHR present_info {
+		.waitSemaphoreCount = 1,
+		.pWaitSemaphores = &*impl->render_semaphores[frame_index],
+		.swapchainCount = 1,
+		.pSwapchains = &*swapchain.get_swapchain(),
+		.pImageIndices = &image_index,
+	};
+
 	try {
 		vk::Result result = impl->present_queue.presentKHR(present_info);
 		if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
@@ -111,17 +141,6 @@ Result<> Device::present(vk::PresentInfoKHR present_info) {
 	}
 
 	return {};
-}
-
-void Device::submit(const CommandBuffer &command_buffer) {
-	vk::SubmitInfo submit_info {
-		.commandBufferCount = 1,
-		.pCommandBuffers = &*command_buffer.get_command_buffer(),
-	};
-	submit_graphics(submit_info);
-	if (command_buffer.get_type() == CommandBufferType::OneTime) {
-		wait_graphics_queue();
-	}
 }
 
 CommandBuffer Device::allocate_command_buffer() const {

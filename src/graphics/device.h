@@ -1,8 +1,8 @@
 #pragma once
 
 #include "tramogi/core/types.h"
+#include <cstdint>
 #include <memory>
-#include <stdint.h>
 #include <vector>
 
 namespace vk {
@@ -26,6 +26,7 @@ class DescriptorPool;
 class DescriptorSet;
 class Instance;
 class PhysicalDevice;
+class Swapchain;
 
 class Device {
 public:
@@ -36,13 +37,9 @@ public:
 	Device(Device &&);
 	Device &operator=(Device &&) = delete;
 
-	void submit_graphics(
-		vk::SubmitInfo submit_info,
-		uint32_t frame_index = 0,
-		bool wait_for_fence = false
-	);
-	core::Result<> present(vk::PresentInfoKHR present_info);
-	void submit(const CommandBuffer &command_buffer);
+	void submit_graphics_single(const CommandBuffer &command_buffer);
+	void submit_graphics(const CommandBuffer &command_buffer, uint32_t frame_index);
+	core::Result<> present(const Swapchain &swapchain, uint32_t image_index, uint32_t frame_index);
 
 	CommandBuffer allocate_command_buffer() const;
 	std::vector<CommandBuffer> allocate_command_buffers(uint32_t count) const;

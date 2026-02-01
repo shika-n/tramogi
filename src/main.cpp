@@ -404,7 +404,7 @@ private:
 			}
 		);
 		cmd.end();
-		device.submit(cmd);
+		device.submit_graphics_single(cmd);
 	}
 
 	void record_command_buffer(uint32_t image_index) {
@@ -504,30 +504,9 @@ private:
 		record_command_buffer(image_index.value());
 		device.reset_fence(current_frame);
 
-		vk::PipelineStageFlags wait_destination_stage_mask(
-			vk::PipelineStageFlagBits::eColorAttachmentOutput
-		);
-		const vk::SubmitInfo submit_info {
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*device.get_present_semaphore(current_frame),
-			.pWaitDstStageMask = &wait_destination_stage_mask,
-			.commandBufferCount = 1,
-			.pCommandBuffers = &*command_buffers[current_frame].get_command_buffer(),
-			.signalSemaphoreCount = 1,
-			.pSignalSemaphores = &*device.get_render_semaphore(current_frame),
-		};
+		device.submit_graphics(command_buffers[current_frame], current_frame);
 
-		device.submit_graphics(submit_info, current_frame, true);
-
-		vk::PresentInfoKHR present_info {
-			.waitSemaphoreCount = 1,
-			.pWaitSemaphores = &*device.get_render_semaphore(current_frame),
-			.swapchainCount = 1,
-			.pSwapchains = &*swapchain.get_swapchain(),
-			.pImageIndices = &image_index.value(),
-		};
-
-		auto present_result = device.present(present_info);
+		auto present_result = device.present(swapchain, image_index.value(), current_frame);
 		if (!present_result || window.resized) {
 			window.resized = false;
 			recreate_swapchain();
