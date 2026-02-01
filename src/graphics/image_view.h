@@ -3,6 +3,7 @@
 #include <concepts>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 namespace vk {
 class Image;
@@ -49,14 +50,10 @@ template <class T, class U>
 concept Derived = std::derived_from<T, U>;
 template <Derived<Image> T> class ImageViewPair {
 public:
-	ImageViewPair(
-		const PhysicalDevice &physical_device,
-		const Device &device,
-		uint32_t width,
-		uint32_t height,
-		bool mipmap
-	)
-		: image(physical_device, device, width, height, mipmap), image_view(device, image) {}
+	template <class... Args>
+		requires std::constructible_from<Image, const PhysicalDevice &, const Device &, Args...>
+	ImageViewPair(const PhysicalDevice &physical_device, const Device &device, Args &&...args)
+		: image(physical_device, device, std::forward<Args>(args)...), image_view(device, image) {}
 	~ImageViewPair() = default;
 
 	ImageViewPair(const ImageViewPair &) = delete;
