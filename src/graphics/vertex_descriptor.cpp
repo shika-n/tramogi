@@ -24,18 +24,6 @@ vk::VertexInputRate to_vk_input_rate(VertexDescriptor::Type type) {
 	std::unreachable();
 }
 
-vk::Format to_vk_format(AttributeDescription::Format format) {
-	switch (format) {
-	case AttributeDescription::Format::Float2:
-		return vk::Format::eR32G32Sfloat;
-	case AttributeDescription::Format::Float3:
-		return vk::Format::eR32G32B32Sfloat;
-	}
-
-	assert(false && "Is attribute description's format initialized?");
-	std::unreachable();
-}
-
 vk::VertexInputBindingDescription VertexDescriptor::get_binding_description() const {
 	return {
 		.binding = binding,
@@ -54,7 +42,7 @@ std::vector<vk::VertexInputAttributeDescription> VertexDescriptor::
 			vk::VertexInputAttributeDescription {
 				.location = desc.location,
 				.binding = binding,
-				.format = to_vk_format(desc.format),
+				.format = native(desc.format),
 				.offset = desc.offset,
 			}
 		);

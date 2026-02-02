@@ -4,6 +4,7 @@ add_library(
 	${PROJECT_NAME}-graphics
 	SHARED
 		allocator.cpp
+		attachment_info.cpp
 		buffer.cpp
 		command_buffer.cpp
 		descriptor.cpp
@@ -11,6 +12,7 @@ add_library(
 		descriptor_pool.cpp
 		device.cpp
 		dispatch_loader.cpp
+		format.cpp
 		image.cpp
 		image_view.cpp
 		instance.cpp

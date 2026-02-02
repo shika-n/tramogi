@@ -42,13 +42,17 @@
 #include "engine/camera.h"
 #include "engine/primitives/cube.h"
 #include "graphics/allocator.h"
+#include "graphics/attachment_info.h"
 #include "graphics/command_buffer.h"
 #include "graphics/descriptor.h"
 #include "graphics/descriptor_pool.h"
 #include "graphics/device.h"
 #include "graphics/dispatch_loader.h"
+#include "graphics/format.h"
 #include "graphics/image.h"
+#include "graphics/image_view.h"
 #include "graphics/instance.h"
+#include "graphics/internal_types.h"
 #include "graphics/physical_device.h"
 #include "graphics/pipeline.h"
 #include "graphics/shader.h"
@@ -78,11 +82,13 @@ using namespace tramogi::platform;
 using namespace tramogi::core::logging;
 
 struct UniformBufferObject {
-	glm::mat4 projection;
-	glm::mat4 view;
-	glm::mat4 model;
-	glm::mat4 model_normal;
+	glm::mat4 projection_view;
+	glm::mat4 inverse_projection_view;
+
 	glm::vec3 camera_position;
+
+	alignas(16) glm::mat4 model;
+	glm::mat4 model_normal;
 };
 
 class ProjectSkyHigh {
@@ -123,17 +129,31 @@ private:
 	DescriptorLayout descriptor_set_layout;
 	std::vector<DescriptorSet> descriptor_sets;
 
-	std::unique_ptr<Pipeline> pipeline;
+	std::unique_ptr<Pipeline> gbuffer_pipeline;
+	std::unique_ptr<Pipeline> shading_pipeline;
 
-	std::unique_ptr<ImageViewPair<DepthImage>> depth_image;
-
-	constexpr static std::array<DescriptorLayoutBinding, 1> binds = {
+	constexpr static std::array binds = {
 		DescriptorLayoutBinding {
 			.location = 0,
 			.stage = DescriptorLayoutBinding::Stage::VertexFragment,
 			.type = DescriptorLayoutBinding::Type::UniformbBuffer,
 		},
+		DescriptorLayoutBinding {
+			.location = 1,
+			.count = 3,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
 	};
+
+	std::unique_ptr<InFlightSet<DepthImage>> depth_image;
+	std::unique_ptr<InFlightSet<Image>> gbuffer_albedo;
+	std::unique_ptr<InFlightSet<Image>> gbuffer_normal;
+
+	AttachmentLayout gbuffer_attachment_layout;
+	AttachmentLayout screen_attachment_layout;
+
+	vk::raii::Sampler sampler = nullptr;
 
 	uint32_t current_frame = 0;
 
@@ -158,12 +178,38 @@ private:
 		);
 	}
 
+	void create_texture_sampler() {
+		vk::PhysicalDeviceProperties properties =
+			physical_device.get_physical_device().getProperties();
+		vk::SamplerCreateInfo sampler_info {
+			.magFilter = vk::Filter::eLinear,
+			.minFilter = vk::Filter::eLinear,
+			.mipmapMode = vk::SamplerMipmapMode::eLinear,
+			.addressModeU = vk::SamplerAddressMode::eRepeat,
+			.addressModeV = vk::SamplerAddressMode::eRepeat,
+			.addressModeW = vk::SamplerAddressMode::eRepeat,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = vk::True,
+			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+			.compareEnable = vk::False,
+			.compareOp = vk::CompareOp::eAlways,
+		};
+		sampler = vk::raii::Sampler(device.get_device(), sampler_info);
+	}
 	void init_vulkan() {
+		create_image_resources();
 		create_graphics_pipeline();
-		create_depth_resources();
+		create_shading_pipeline();
+
+		create_texture_sampler();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
+		descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			descriptor_set_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
 		create_descriptor_sets();
 		create_command_buffers();
 	}
@@ -171,10 +217,14 @@ private:
 	void init_imgui() {
 		debug_log("Starting ImGui setup");
 
+		vk::Format format = native(swapchain.get_format());
+
 		vk::PipelineRenderingCreateInfoKHR dynamic_render_info {};
 		dynamic_render_info.colorAttachmentCount = 1;
-		dynamic_render_info.pColorAttachmentFormats = &swapchain.get_format();
-		dynamic_render_info.depthAttachmentFormat = physical_device.get_depth_format().value();
+		dynamic_render_info.pColorAttachmentFormats = &format;
+		dynamic_render_info.depthAttachmentFormat = native(
+			physical_device.get_depth_format().value()
+		);
 
 		ImGui_ImplVulkan_InitInfo imgui_info {};
 		imgui_info.Instance = *instance.get_instance();
@@ -289,35 +339,99 @@ private:
 		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, sizeof(BasicVertex));
 		vertex_descriptor.add_attributes({
 			.location = 0,
-			.format = AttributeDescription::Format::Float3,
+			.format = Format::Float3,
 			.offset = offsetof(BasicVertex, position),
 		});
 		vertex_descriptor.add_attributes({
 			.location = 1,
-			.format = AttributeDescription::Format::Float3,
+			.format = Format::Float3,
 			.offset = offsetof(BasicVertex, color),
 		});
 		vertex_descriptor.add_attributes({
 			.location = 2,
-			.format = AttributeDescription::Format::Float3,
+			.format = Format::Float3,
 			.offset = offsetof(BasicVertex, normal),
 		});
 
-		pipeline = std::make_unique<Pipeline>(
+		gbuffer_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Depth,
+			depth_image->get_image(0).get_format()
+		);
+		gbuffer_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color0,
+			gbuffer_albedo->get_image(0).get_format()
+		);
+		gbuffer_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color1,
+			gbuffer_normal->get_image(0).get_format()
+		);
+
+		gbuffer_pipeline = std::make_unique<Pipeline>(
 			device,
 			descriptor_set_layout,
 			shader_module,
-			swapchain,
-			vertex_descriptor
+			vertex_descriptor,
+			gbuffer_attachment_layout,
+			PipelineOption {
+				.is_depth_test = true,
+				.is_depth_write = true,
+			}
 		);
 	}
 
-	void create_depth_resources() {
-		depth_image = std::make_unique<ImageViewPair<DepthImage>>(
+	void create_shading_pipeline() {
+		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		if (!shader_code_result) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
+
+		Shader shader_module(device, shader_code);
+		shader_module.add_vertex_stage("screen_vert");
+		shader_module.add_fragment_stage("screen_frag");
+
+		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, 0);
+
+		screen_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color0,
+			swapchain.get_format()
+		);
+
+		shading_pipeline = std::make_unique<Pipeline>(
+			device,
+			descriptor_set_layout,
+			shader_module,
+			vertex_descriptor,
+			screen_attachment_layout,
+			PipelineOption {
+				.is_depth_test = false,
+				.is_depth_write = false,
+			}
+		);
+	}
+
+	void create_image_resources() {
+		depth_image = std::make_unique<InFlightSet<DepthImage>>(
 			physical_device,
 			device,
 			swapchain.get_extent().width,
 			swapchain.get_extent().height,
+			false
+		);
+		gbuffer_albedo = std::make_unique<InFlightSet<Image>>(
+			physical_device,
+			device,
+			swapchain.get_extent().width,
+			swapchain.get_extent().height,
+			Format::RGBA8Srgb,
+			false
+		);
+		gbuffer_normal = std::make_unique<InFlightSet<Image>>(
+			physical_device,
+			device,
+			swapchain.get_extent().width,
+			swapchain.get_extent().height,
+			Format::RGBA16Float,
 			false
 		);
 	}
@@ -363,18 +477,29 @@ private:
 	}
 
 	void create_descriptor_sets() {
-		descriptor_sets = device.allocate_descriptor_sets(
-			descriptor_pool,
-			descriptor_set_layout,
-			MAX_FRAMES_IN_FLIGHT
-		);
-
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			std::array<vk::DescriptorBufferInfo, 1> buffer_info {
 				vk::DescriptorBufferInfo {
 					.buffer = uniform_buffers[i].get_buffer(),
 					.offset = 0,
 					.range = sizeof(UniformBufferObject),
+				},
+			};
+			std::array image_info {
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = gbuffer_albedo->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = gbuffer_normal->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = depth_image->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
 			};
 			std::array descriptor_writes {
@@ -385,6 +510,14 @@ private:
 					.descriptorCount = 1,
 					.descriptorType = vk::DescriptorType::eUniformBuffer,
 					.pBufferInfo = buffer_info.data(),
+				},
+				vk::WriteDescriptorSet {
+					.dstSet = descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = static_cast<uint32_t>(image_info.size()),
+					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+					.pImageInfo = image_info.data()
 				},
 			};
 			device.get_device().updateDescriptorSets(descriptor_writes, {});
@@ -410,45 +543,6 @@ private:
 	void record_command_buffer(uint32_t image_index) {
 		CommandBuffer &command_buffer = command_buffers[current_frame];
 		command_buffer.begin();
-
-		swapchain.get_image(image_index).as_attachment(command_buffer);
-		depth_image->get_image().as_depth_target(command_buffers[current_frame]);
-
-		vk::ClearValue clear_color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
-		vk::ClearValue clear_depth = vk::ClearDepthStencilValue(1.0f, 0);
-		vk::RenderingAttachmentInfo attachment_info {
-			.imageView = swapchain.get_image_view(image_index).get_image_view(),
-			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-			.loadOp = vk::AttachmentLoadOp::eClear,
-			.storeOp = vk::AttachmentStoreOp::eStore,
-			.clearValue = clear_color,
-		};
-		vk::RenderingAttachmentInfo depth_attachment_info {
-			.imageView = depth_image->get_image_view().get_image_view(),
-			.imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
-			.loadOp = vk::AttachmentLoadOp::eClear,
-			.storeOp = vk::AttachmentStoreOp::eDontCare,
-			.clearValue = clear_depth,
-		};
-
-		vk::RenderingInfo rendering_info {
-			.renderArea =
-				{
-					.offset = {0, 0},
-					.extent = swapchain.get_extent(),
-				},
-			.layerCount = 1,
-			.colorAttachmentCount = 1,
-			.pColorAttachments = &attachment_info,
-			.pDepthAttachment = &depth_attachment_info,
-		};
-
-		command_buffer.get_command_buffer().beginRendering(rendering_info);
-
-		command_buffer.get_command_buffer().bindPipeline(
-			vk::PipelineBindPoint::eGraphics,
-			pipeline->get_pipeline()
-		);
 		command_buffer.get_command_buffer().setViewport(
 			0,
 			vk::Viewport(
@@ -465,13 +559,43 @@ private:
 			vk::Rect2D(vk::Offset2D(0, 0), swapchain.get_extent())
 		);
 
+		depth_image->get_image(current_frame).as_depth_target(command_buffer);
+		gbuffer_albedo->get_image(current_frame).as_color_target(command_buffer);
+		gbuffer_normal->get_image(current_frame).as_color_target(command_buffer);
+
+		std::span color_attachments = gbuffer_attachment_layout.get_color_infos({
+			{AttachmentLayout::Type::Color0, &gbuffer_albedo->get_image_view(current_frame)},
+			{AttachmentLayout::Type::Color1, &gbuffer_normal->get_image_view(current_frame)},
+		});
+
+		vk::RenderingInfo rendering_info {
+			.renderArea =
+				{
+					.offset = {0, 0},
+					.extent = swapchain.get_extent(),
+				},
+			.layerCount = 1,
+			.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size()),
+			.pColorAttachments = color_attachments.data(),
+			.pDepthAttachment = &gbuffer_attachment_layout.get_depth_info(
+				depth_image->get_image_view(current_frame)
+			),
+		};
+
+		command_buffer.get_command_buffer().beginRendering(rendering_info);
+
+		command_buffer.get_command_buffer().bindPipeline(
+			vk::PipelineBindPoint::eGraphics,
+			gbuffer_pipeline->get_pipeline()
+		);
+
 		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
 		command_buffer.get_command_buffer()
 			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
 
 		command_buffer.get_command_buffer().bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
-			pipeline->get_layout(),
+			gbuffer_pipeline->get_layout(),
 			0,
 			*descriptor_sets[current_frame].get_descriptor_set(),
 			nullptr
@@ -480,8 +604,32 @@ private:
 		command_buffer.get_command_buffer()
 			.drawIndexed(model.get_indices().size(), 11 * 11 * 11, 0, 0, 0);
 
-		tramogi::graphics::imgui::render(command_buffer.get_command_buffer());
+		command_buffer.get_command_buffer().endRendering();
 
+		// Light pass
+		swapchain.get_image(image_index).as_attachment(command_buffer);
+		std::span screen_pass_attachments = screen_attachment_layout.get_color_infos({
+			{AttachmentLayout::Type::Color0, &swapchain.get_image_view(image_index)},
+		});
+		vk::RenderingInfo light_pass_render_info {
+			.renderArea = {.offset = {0, 0}, .extent = swapchain.get_extent()},
+			.layerCount = 1,
+			.colorAttachmentCount = static_cast<uint32_t>(screen_pass_attachments.size()),
+			.pColorAttachments = screen_pass_attachments.data(),
+		};
+		command_buffer.get_command_buffer().beginRendering(light_pass_render_info);
+
+		gbuffer_albedo->get_image(current_frame).as_sampled(command_buffer);
+		gbuffer_normal->get_image(current_frame).as_sampled(command_buffer);
+		depth_image->get_image(current_frame).as_sampled(command_buffer);
+
+		command_buffer.get_command_buffer().bindPipeline(
+			vk::PipelineBindPoint::eGraphics,
+			shading_pipeline->get_pipeline()
+		);
+		command_buffer.get_command_buffer().draw(6, 1, 0, 0);
+
+		tramogi::graphics::imgui::render(command_buffer.get_command_buffer());
 		command_buffer.get_command_buffer().endRendering();
 
 		swapchain.get_image(image_index).as_present_source(command_buffer);
@@ -495,6 +643,7 @@ private:
 
 		if (!image_index) {
 			recreate_swapchain();
+			ImGui::EndFrame();
 			return;
 		}
 
@@ -525,9 +674,13 @@ private:
 			ImGui::End();
 		}
 
+		glm::mat4 projection_view = camera.get_projection() * camera.get_view();
+
 		UniformBufferObject ubo {
-			.projection = camera.get_projection(),
-			.view = camera.get_view(),
+			.projection_view = projection_view,
+			.inverse_projection_view = glm::inverse(projection_view),
+			.camera_position = camera.get_position(),
+
 			.model = glm::rotate(
 				glm::rotate(
 					glm::rotate(
@@ -542,7 +695,6 @@ private:
 				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
 			.model_normal = glm::identity<glm::mat4>(),
-			.camera_position = camera.get_position(),
 		};
 
 		ubo.model_normal = glm::transpose(glm::inverse(ubo.model));
@@ -561,7 +713,8 @@ private:
 
 		swapchain.recreate(dimension);
 
-		create_depth_resources();
+		create_image_resources();
+		create_descriptor_sets();
 
 		camera.change_perspective(dimension.x, dimension.y, glm::radians(90.0f));
 

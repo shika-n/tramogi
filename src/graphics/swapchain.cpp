@@ -1,13 +1,15 @@
 #include "swapchain.h"
 #include "device.h"
+#include "format.h"
 #include "image.h"
 #include "image_view.h"
 #include "physical_device.h"
 #include "tramogi/core/types.h"
-
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
@@ -20,7 +22,7 @@ using core::Size;
 
 struct Swapchain::Impl {
 	vk::Extent2D extent;
-	vk::SurfaceFormatKHR surface_format;
+	SurfaceFormat surface_format;
 	vk::raii::SwapchainKHR swapchain = nullptr;
 	std::vector<SwapchainImage> images;
 	std::vector<ImageView> image_views;
@@ -40,21 +42,22 @@ struct Swapchain::Impl {
 	}
 };
 
-vk::SurfaceFormatKHR choose_surface_format(
-	const std::vector<vk::SurfaceFormatKHR> &available_formats
-) {
-	for (const auto &format : available_formats) {
-		if (format.format == vk::Format::eB8G8R8A8Srgb &&
-			format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear) {
-			return format;
+Result<SurfaceFormat> choose_surface_format(std::span<const SurfaceFormat> available_formats) {
+	constexpr std::array acceptable_formats = {
+		Format::BGRA8Srgb,
+		Format::RGBA8Srgb,
+	};
+	for (const auto acceptable_format : acceptable_formats) {
+		for (const auto &format : available_formats) {
+			if (format.format == acceptable_format && format.is_nonlinear) {
+				return format;
+			}
 		}
 	}
-	return available_formats[0];
+	return Error("No suitable surface format.");
 }
 
-vk::PresentModeKHR choose_present_mode(
-	const std::vector<vk::PresentModeKHR> &available_present_mode
-) {
+vk::PresentModeKHR choose_present_mode(std::span<const vk::PresentModeKHR> available_present_mode) {
 	for (const auto &mode : available_present_mode) {
 		if (mode == vk::PresentModeKHR::eMailbox) {
 			return mode;
@@ -127,11 +130,15 @@ void Swapchain::recreate(const Size &window_size) {
 	impl->swapchain = nullptr;
 
 	vk::SurfaceCapabilitiesKHR surface_capabilities = physical_device.get_surface_capabilities();
-	std::vector<vk::SurfaceFormatKHR> available_formats = physical_device.get_surface_formats();
+	std::vector<SurfaceFormat> available_formats = physical_device.get_surface_formats();
 	std::vector<vk::PresentModeKHR> available_present_modes =
 		physical_device.get_surface_present_modes();
 
-	impl->surface_format = choose_surface_format(available_formats);
+	Result<SurfaceFormat> surface_format = choose_surface_format(available_formats);
+	if (!surface_format) {
+		throw std::runtime_error(surface_format.error());
+	}
+	impl->surface_format = surface_format.value();
 	impl->extent = choose_swap_extent(surface_capabilities, window_size);
 
 	auto min_image_count = std::max(3u, surface_capabilities.minImageCount);
@@ -151,8 +158,8 @@ void Swapchain::recreate(const Size &window_size) {
 		.flags = vk::SwapchainCreateFlagsKHR(),
 		.surface = physical_device.get_surface(),
 		.minImageCount = min_image_count,
-		.imageFormat = impl->surface_format.format,
-		.imageColorSpace = impl->surface_format.colorSpace,
+		.imageFormat = native(impl->surface_format.format),
+		.imageColorSpace = vk::ColorSpaceKHR::eSrgbNonlinear,
 		.imageExtent = impl->extent,
 		.imageArrayLayers = 1,
 		.imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
@@ -193,7 +200,7 @@ const vk::raii::SwapchainKHR &Swapchain::get_swapchain() const {
 	return impl->swapchain;
 }
 
-const vk::Format &Swapchain::get_format() const {
+const Format &Swapchain::get_format() const {
 	return impl->surface_format.format;
 }
 

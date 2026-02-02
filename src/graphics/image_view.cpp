@@ -1,6 +1,7 @@
 #include "image_view.h"
 
 #include "device.h"
+#include "format.h"
 #include "image.h"
 
 #include <cstdint>
@@ -17,7 +18,7 @@ ImageView::ImageView(const Device &device, const Image &image) : impl(std::make_
 	vk::ImageViewCreateInfo view_info {
 		.image = image.get_image(),
 		.viewType = vk::ImageViewType::e2D,
-		.format = image.get_format(),
+		.format = native(image.get_format()),
 		.subresourceRange = {
 			.aspectMask = image.get_aspect_flags(),
 			.baseMipLevel = 0,
@@ -31,7 +32,7 @@ ImageView::ImageView(const Device &device, const Image &image) : impl(std::make_
 ImageView::ImageView(
 	const Device &device,
 	const SwapchainImage &image,
-	vk::Format format,
+	Format format,
 	vk::ImageAspectFlags aspect_flags,
 	uint32_t mipmap_level_count
 )
@@ -39,7 +40,7 @@ ImageView::ImageView(
 	vk::ImageViewCreateInfo view_info {
 		.image = image.get_image(),
 		.viewType = vk::ImageViewType::e2D,
-		.format = format,
+		.format = native(format),
 		.subresourceRange = {
 			.aspectMask = aspect_flags,
 			.baseMipLevel = 0,

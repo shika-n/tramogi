@@ -19,6 +19,7 @@ class ImageView;
 namespace tramogi::graphics {
 
 class Device;
+enum class Format;
 class Image;
 class PhysicalDevice;
 class SwapchainImage;
@@ -29,7 +30,7 @@ public:
 	ImageView(
 		const Device &device,
 		const SwapchainImage &image,
-		vk::Format format,
+		Format format,
 		vk::ImageAspectFlags aspect_flags,
 		uint32_t mipmap_level_count
 	);
@@ -51,7 +52,7 @@ concept Derived = std::derived_from<T, U>;
 template <Derived<Image> T> class ImageViewPair {
 public:
 	template <class... Args>
-		requires std::constructible_from<Image, const PhysicalDevice &, const Device &, Args...>
+		requires std::constructible_from<T, const PhysicalDevice &, const Device &, Args...>
 	ImageViewPair(const PhysicalDevice &physical_device, const Device &device, Args &&...args)
 		: image(physical_device, device, std::forward<Args>(args)...), image_view(device, image) {}
 	~ImageViewPair() = default;
@@ -61,11 +62,11 @@ public:
 	ImageViewPair(ImageViewPair &&) = default;
 	ImageViewPair &operator=(ImageViewPair &&) = default;
 
-	T &get_image() {
+	const T &get_image() const {
 		return image;
 	}
 
-	ImageView &get_image_view() {
+	const ImageView &get_image_view() const {
 		return image_view;
 	}
 

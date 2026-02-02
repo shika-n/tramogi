@@ -13,11 +13,19 @@ class PipelineLayout;
 
 namespace tramogi::graphics {
 
+class AttachmentLayout;
+class DepthImage;
 class DescriptorLayout;
 class Device;
+enum class Format;
 class Shader;
 class Swapchain;
 class VertexDescriptor;
+
+struct PipelineOption {
+	bool is_depth_test;
+	bool is_depth_write;
+};
 
 class Pipeline {
 public:
@@ -25,8 +33,9 @@ public:
 		const Device &device,
 		const DescriptorLayout &descriptor_layout,
 		const Shader &shader,
-		const Swapchain &swapchain,
-		const VertexDescriptor &vertex_descriptor
+		const VertexDescriptor &vertex_descriptor,
+		const AttachmentLayout &attachment_layout,
+		PipelineOption pipeline_option
 	);
 	~Pipeline();
 	Pipeline(const Pipeline &) = delete;

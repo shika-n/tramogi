@@ -16,6 +16,7 @@ class SwapchainKHR;
 namespace tramogi::graphics {
 
 class Device;
+enum class Format;
 class ImageView;
 class PhysicalDevice;
 class SwapchainImage;
@@ -37,7 +38,7 @@ public:
 	void recreate(const core::Size &window_size);
 
 	const vk::raii::SwapchainKHR &get_swapchain() const;
-	const vk::Format &get_format() const;
+	const Format &get_format() const;
 	const vk::Extent2D &get_extent() const;
 	const SwapchainImage &get_image(uint32_t index) const;
 	const ImageView &get_image_view(uint32_t index) const;

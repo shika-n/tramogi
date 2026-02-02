@@ -1,5 +1,6 @@
 #pragma once
 
+#include "format.h"
 #include <cstdint>
 #include <vector>
 
@@ -11,11 +12,6 @@ class VertexInputBindingDescription;
 namespace tramogi::graphics {
 
 struct AttributeDescription {
-	enum class Format {
-		Float2,
-		Float3,
-	};
-
 	uint32_t location;
 	Format format;
 	uint32_t offset;

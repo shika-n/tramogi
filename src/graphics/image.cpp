@@ -2,6 +2,7 @@
 #include "allocator.h"
 #include "command_buffer.h"
 #include "device.h"
+#include "format.h"
 #include "image_view.h"
 #include "physical_device.h"
 #include "tramogi/core/types.h"
@@ -23,7 +24,7 @@ struct Image::Impl {
 	vk::raii::Image image = nullptr;
 	vk::raii::DeviceMemory memory = nullptr;
 
-	vk::Format format;
+	Format format;
 };
 
 uint32_t calculate_mipmap_levels(uint32_t width, uint32_t height) {
@@ -75,79 +76,26 @@ Image::Image(
 	const Device &device,
 	uint32_t width,
 	uint32_t height,
+	Format format,
 	bool mipmap
 )
 	: impl(std::make_unique<Impl>()) {
-	impl->format = vk::Format::eR8G8B8A8Srgb;
+	impl->format = format;
 	if (mipmap) {
 		mipmap_level_count = calculate_mipmap_levels(width, height);
 	}
 
 	vk::ImageCreateInfo create_info {
 		.imageType = vk::ImageType::e2D,
-		.format = impl->format,
+		.format = native(impl->format),
 		.extent = {width, height, 1},
 		.mipLevels = mipmap_level_count,
 		.arrayLayers = 1,
 		.samples = vk::SampleCountFlagBits::e1,
 		.tiling = vk::ImageTiling::eOptimal,
-		.usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
-				 vk::ImageUsageFlagBits::eSampled,
-		.sharingMode = vk::SharingMode::eExclusive,
-	};
-
-	impl->image = vk::raii::Image(device.get_device(), create_info);
-	auto allocation_result =
-		allocate_memory(device, impl->image.getMemoryRequirements(), MemoryType::Host);
-	if (!allocation_result) {
-		throw std::runtime_error(allocation_result.error());
-	}
-
-	impl->memory = std::move(allocation_result.value());
-	impl->image.bindMemory(impl->memory, 0);
-}
-
-Image::~Image() = default;
-Image::Image(Image &&) = default;
-Image &Image::operator=(Image &&) = default;
-
-const vk::raii::Image &Image::get_image() const {
-	return impl->image;
-}
-
-vk::Format Image::get_format() const {
-	return impl->format;
-}
-
-vk::ImageAspectFlags Image::get_aspect_flags() const {
-	return vk::ImageAspectFlagBits::eColor;
-}
-
-DepthImage::DepthImage(
-	const PhysicalDevice &physical_device,
-	const Device &device,
-	uint32_t width,
-	uint32_t height,
-	bool mipmap
-) {
-	Result<vk::Format> format = physical_device.get_depth_format();
-	if (!format) {
-		throw std::runtime_error(format.error());
-	}
-	impl->format = format.value();
-	if (mipmap) {
-		mipmap_level_count = calculate_mipmap_levels(width, height);
-	}
-
-	vk::ImageCreateInfo create_info {
-		.imageType = vk::ImageType::e2D,
-		.format = impl->format,
-		.extent = {width, height, 1},
-		.mipLevels = mipmap_level_count,
-		.arrayLayers = 1,
-		.samples = vk::SampleCountFlagBits::e1,
-		.tiling = vk::ImageTiling::eOptimal,
-		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
+		.usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
+		// .usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
+		// 		 vk::ImageUsageFlagBits::eSampled,
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
@@ -162,7 +110,90 @@ DepthImage::DepthImage(
 	impl->image.bindMemory(impl->memory, 0);
 }
 
-void DepthImage::as_depth_target(const CommandBuffer &cmd) {
+Image::~Image() = default;
+Image::Image(Image &&) = default;
+Image &Image::operator=(Image &&) = default;
+
+void Image::as_color_target(const CommandBuffer &cmd) const {
+	transition_image_layout(
+		cmd,
+		impl->image,
+		vk::ImageLayout::eUndefined,
+		vk::ImageLayout::eColorAttachmentOptimal,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::ImageAspectFlagBits::eColor
+	);
+}
+
+void Image::as_sampled(const CommandBuffer &cmd) const {
+	transition_image_layout(
+		cmd,
+		impl->image,
+		vk::ImageLayout::eColorAttachmentOptimal,
+		vk::ImageLayout::eShaderReadOnlyOptimal,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::AccessFlagBits2::eShaderRead,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::ImageAspectFlagBits::eColor
+	);
+}
+
+const vk::raii::Image &Image::get_image() const {
+	return impl->image;
+}
+
+Format Image::get_format() const {
+	return impl->format;
+}
+
+vk::ImageAspectFlags Image::get_aspect_flags() const {
+	return vk::ImageAspectFlagBits::eColor;
+}
+
+DepthImage::DepthImage(
+	const PhysicalDevice &physical_device,
+	const Device &device,
+	uint32_t width,
+	uint32_t height,
+	bool mipmap
+) {
+	Result<Format> format = physical_device.get_depth_format();
+	if (!format) {
+		throw std::runtime_error(format.error());
+	}
+	impl->format = format.value();
+	if (mipmap) {
+		mipmap_level_count = calculate_mipmap_levels(width, height);
+	}
+
+	vk::ImageCreateInfo create_info {
+		.imageType = vk::ImageType::e2D,
+		.format = native(impl->format),
+		.extent = {width, height, 1},
+		.mipLevels = mipmap_level_count,
+		.arrayLayers = 1,
+		.samples = vk::SampleCountFlagBits::e1,
+		.tiling = vk::ImageTiling::eOptimal,
+		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
+		.sharingMode = vk::SharingMode::eExclusive,
+	};
+
+	impl->image = vk::raii::Image(device.get_device(), create_info);
+	auto allocation_result =
+		allocate_memory(device, impl->image.getMemoryRequirements(), MemoryType::Gpu);
+	if (!allocation_result) {
+		throw std::runtime_error(allocation_result.error());
+	}
+
+	impl->memory = std::move(allocation_result.value());
+	impl->image.bindMemory(impl->memory, 0);
+}
+
+void DepthImage::as_depth_target(const CommandBuffer &cmd) const {
 	transition_image_layout(
 		cmd,
 		impl->image,

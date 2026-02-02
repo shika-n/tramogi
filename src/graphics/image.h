@@ -3,13 +3,11 @@
 #include "image_view.h"
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 namespace vk {
 template <class T> class Flags;
 enum class ImageAspectFlagBits : uint32_t;
 using ImageAspectFlags = Flags<ImageAspectFlagBits>;
-enum class Format;
 class PhysicalDevice;
 namespace raii {
 class Device;
@@ -21,6 +19,7 @@ namespace tramogi::graphics {
 
 class CommandBuffer;
 class Device;
+enum class Format;
 class ImageView;
 class PhysicalDevice;
 
@@ -31,6 +30,7 @@ public:
 		const Device &device,
 		uint32_t width,
 		uint32_t height,
+		Format format,
 		bool mipmap
 	);
 	virtual ~Image();
@@ -40,8 +40,11 @@ public:
 	Image(Image &&);
 	Image &operator=(Image &&);
 
+	void as_color_target(const CommandBuffer &cmd) const;
+	void as_sampled(const CommandBuffer &cmd) const;
+
 	const vk::raii::Image &get_image() const;
-	vk::Format get_format() const;
+	Format get_format() const;
 	uint32_t get_mipmap_level() const {
 		return mipmap_level_count;
 	}
@@ -73,7 +76,7 @@ public:
 	DepthImage(DepthImage &&) = default;
 	DepthImage &operator=(DepthImage &&) = default;
 
-	void as_depth_target(const CommandBuffer &cmd);
+	void as_depth_target(const CommandBuffer &cmd) const;
 	vk::ImageAspectFlags get_aspect_flags() const;
 };
 

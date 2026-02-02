@@ -9,15 +9,16 @@ struct VertexOutput {
 	float4 position : SV_Position;
 	float3 color;
 	float3 normal;
-	float3 world_position;
 };
 
 struct UniformBuffer {
-	float4x4 projection;
-	float4x4 view;
+	float4x4 projection_view;
+	float4x4 inverse_projection_view;
+
+	float3 camera_position;
+
 	float4x4 model;
 	float4x4 model_normal;
-	float3 camera_position;
 };
 ConstantBuffer<UniformBuffer> ubo;
 
@@ -35,8 +36,7 @@ VertexOutput vert_main(VertexInput input) {
 	float4 world_position = mul(ubo.model, float4(input.position, 1.0));
 
 	VertexOutput output;
-	output.position = mul(ubo.projection, mul(ubo.view, world_position));
-	output.world_position = world_position.xyz;
+	output.position = mul(ubo.projection_view, world_position);
 	output.color = input.color;
 	output.normal = mul(ubo.model_normal, float4(input.normal, 0.0)).xyz;
 
@@ -48,29 +48,79 @@ static float3 light_world_dir = normalize(float3(0.3, -0.6, 0.1));
 static float3 light_color = float3(1.0, 1.0, 1.0);
 static float shininess = 16.0;
 
-[shader("fragment")]
-float4 frag_main(VertexOutput vertex_in) : SV_Target {
-	float z_clip = vertex_in.position.z / vertex_in.position.w;
-	float z_fog = clamp(1.0 - ((z_clip / z_far) - 0.5) * 2.0, 0.0, 1.0, );
+struct FragmentOutput {
+	float4 albedo : SV_Target0;
+	float4 normal : SV_Target1;
+};
 
-	float3 light_dir = normalize(-light_world_dir);
+[shader("fragment")]
+FragmentOutput frag_main(VertexOutput vertex_in) {
 	float3 normal = normalize(vertex_in.normal);
+
+	FragmentOutput output;
+	output.albedo = float4(vertex_in.color, 1.0); // TODO: Sample texture if any
+	output.normal = float4(normal, 1.0);
+	return output;
+}
+
+float4 blinn_phong(float4 albedo, float3 normal, float3 position) {
+	float3 light_dir = normalize(-light_world_dir);
+	float3 normal = normalize(normal);
 
 	float light_factor = max(dot(light_dir, normal), 0.0);
 	float specular_factor = 0.0;
 
 	if (light_factor > 0.0) {
-		float3 view_dir = normalize(ubo.camera_position - vertex_in.world_position);
+		float3 view_dir = normalize(ubo.camera_position - position);
 		float3 half_dir = normalize(light_dir + view_dir);
 		specular_factor = 0.8 * pow(max(dot(half_dir, normal), 0.0), shininess) *
 						  ((shininess + 2) / (8 * 3.14));
 	}
 
-	float3 ambient_color = 0.01 * vertex_in.color;
-	float3 diffuse_color = light_factor * light_color * vertex_in.color;
+	float3 ambient_color = 0.01 * albedo.xyz;
+	float3 diffuse_color = light_factor * light_color * albedo.xyz;
 	float3 specular_color = specular_factor * light_color * float3(1.0);
 
-	return float4((ambient_color + diffuse_color + specular_color) * z_fog, 1.0);
+	return float4(ambient_color + diffuse_color + specular_color, 1.0);
 }
+
+Sampler2D sampler[3];
+
+static float2 vertices[] = {
+	{ -1.0, -1.0 },
+	{ -1.0, 1.0 },
+	{ 1.0, -1.0 },
+	{ 1.0, -1.0 },
+	{ -1.0, 1.0 },
+	{ 1.0, 1.0 },
+};
+
+struct ScreenVertexOutput {
+	float4 position : SV_Position;
+	float2 pos;
+	float2 screen_uv;
+};
+
+[shader("vertex")]
+ScreenVertexOutput screen_vert(uint32_t vertex_id: SV_VertexID) {
+	return {
+		float4(vertices[vertex_id], 0.0, 1.0),
+		vertices[vertex_id],
+		(vertices[vertex_id] + 1.0) / 2.0,
+	};
+}
+
+[shader("fragment")]
+float4 screen_frag(ScreenVertexOutput in) : SV_Target {
+	float4 albedo = sampler[0].Sample(in.screen_uv);
+	float3 normal = sampler[1].Sample(in.screen_uv).xyz;
+	float depth = sampler[2].Sample(in.screen_uv).r;
+	float4 position = mul(ubo.inverse_projection_view, float4(in.pos, depth, 1.0));
+
+	float4 color = blinn_phong(albedo, normal, position.xyz / position.w);
+
+	return color;
+}
+
 
 

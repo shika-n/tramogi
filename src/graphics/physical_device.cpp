@@ -1,4 +1,5 @@
 #include "physical_device.h"
+#include "format.h"
 #include "instance.h"
 #include "surface.h"
 #include "tramogi/core/logging/logging.h"
@@ -14,10 +15,12 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_to_string.hpp>
 
 namespace tramogi::graphics {
 
 using core::Error;
+using core::Optional;
 using core::Result;
 using core::logging::debug_log;
 
@@ -176,15 +179,14 @@ PhysicalDevice::~PhysicalDevice() = default;
 PhysicalDevice::PhysicalDevice(PhysicalDevice &&) = default;
 PhysicalDevice &PhysicalDevice::operator=(PhysicalDevice &&) = default;
 
-Result<vk::Format> PhysicalDevice::get_depth_format() const {
-	std::array<vk::Format, 3> formats {
-		vk::Format::eD32Sfloat, // TODO: Add stencil parameter
-		vk::Format::eD32SfloatS8Uint,
-		vk::Format::eD24UnormS8Uint
+Result<Format> PhysicalDevice::get_depth_format() const {
+	std::array formats {
+		Format::Depth32Stencil,
+		Format::Depth24Stencil,
 	};
 
 	for (const auto &format : formats) {
-		auto format_properties = impl->physical_device.getFormatProperties(format);
+		auto format_properties = impl->physical_device.getFormatProperties(native(format));
 		if ((format_properties.optimalTilingFeatures &
 			 vk::FormatFeatureFlagBits::eDepthStencilAttachment) ==
 			vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
@@ -207,8 +209,33 @@ vk::SurfaceCapabilitiesKHR PhysicalDevice::get_surface_capabilities() const {
 	return impl->physical_device.getSurfaceCapabilitiesKHR(surface.get_surface());
 }
 
-std::vector<vk::SurfaceFormatKHR> PhysicalDevice::get_surface_formats() const {
-	return impl->physical_device.getSurfaceFormatsKHR(surface.get_surface());
+Optional<Format> internal_format(vk::Format format) {
+	switch (format) {
+	case vk::Format::eB8G8R8A8Srgb:
+		return Format::BGRA8Srgb;
+	case vk::Format::eB8G8R8A8Unorm:
+		return Format::BGRA8Unorm;
+	default:
+		return core::optional::none;
+	}
+}
+
+std::vector<SurfaceFormat> PhysicalDevice::get_surface_formats() const {
+	std::vector<SurfaceFormat> formats;
+	for (const auto &surface_format :
+		 impl->physical_device.getSurfaceFormatsKHR(surface.get_surface())) {
+		Optional<Format> format = internal_format(surface_format.format);
+		if (!format) {
+			continue;
+		}
+		formats.emplace_back(
+			SurfaceFormat {
+				.format = format.value(),
+				.is_nonlinear = surface_format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear,
+			}
+		);
+	}
+	return formats;
 }
 
 std::vector<vk::PresentModeKHR> PhysicalDevice::get_surface_present_modes() const {

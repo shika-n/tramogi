@@ -1,31 +1,56 @@
 #include "pipeline.h"
+#include "attachment_info.h"
 #include "descriptor.h"
 #include "device.h"
-#include "physical_device.h"
+#include "format.h"
+#include "image.h"
 #include "shader.h"
 #include "swapchain.h"
+#include "tramogi/core/types.h"
 #include "vertex_descriptor.h"
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_to_string.hpp>
 
 namespace tramogi::graphics {
+
+using core::Optional;
 
 struct Pipeline::Impl {
 	vk::raii::PipelineLayout layout = nullptr;
 	vk::raii::Pipeline pipeline = nullptr;
 };
 
+uint32_t native(bool value) {
+	if (value) {
+		return vk::True;
+	} else {
+		return vk::False;
+	}
+}
+
 Pipeline::Pipeline(
 	const Device &device,
 	const DescriptorLayout &descriptor_layout,
 	const Shader &shader,
-	const Swapchain &swapchain,
-	const VertexDescriptor &vertex_descriptor
+	const VertexDescriptor &vertex_descriptor,
+	const AttachmentLayout &attachment_layout,
+	PipelineOption pipeline_option
 )
 	: impl(std::make_unique<Impl>()) {
+	assert(
+		attachment_layout.get_depth_format() ||
+		(!pipeline_option.is_depth_test && !pipeline_option.is_depth_write &&
+		 "You need to specify depth format if either depth test or write is enabled")
+	);
+
+	std::span color_formats = attachment_layout.get_color_formats();
+
 	vk::PipelineLayoutCreateInfo pipeline_layout_info {
 		.setLayoutCount = 1,
 		.pSetLayouts = &*descriptor_layout.get_layout(),
@@ -74,28 +99,39 @@ Pipeline::Pipeline(
 		.rasterizationSamples = vk::SampleCountFlagBits::e1,
 		.sampleShadingEnable = vk::False,
 	};
-	vk::PipelineColorBlendAttachmentState color_blend_attachment {
-		.blendEnable = vk::False,
-		.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-						  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
-	};
+	std::vector<vk::PipelineColorBlendAttachmentState> color_blend_attachments(
+		color_formats.size(),
+		{
+			.blendEnable = vk::False,
+			.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+							  vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+		}
+	);
+
 	vk::PipelineDepthStencilStateCreateInfo depth_stencil_info {
-		.depthTestEnable = vk::True,
-		.depthWriteEnable = vk::True,
+		.depthTestEnable = native(pipeline_option.is_depth_test),
+		.depthWriteEnable = native(pipeline_option.is_depth_write),
 		.depthCompareOp = vk::CompareOp::eLess,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False,
 	};
+
 	vk::PipelineColorBlendStateCreateInfo color_blending {
 		.logicOpEnable = vk::False,
 		.logicOp = vk::LogicOp::eCopy,
-		.attachmentCount = 1,
-		.pAttachments = &color_blend_attachment,
+		.attachmentCount = static_cast<uint32_t>(color_blend_attachments.size()),
+		.pAttachments = color_blend_attachments.data(),
 	};
 
-	auto depth_format = device.get_physical_device().get_depth_format();
-	if (!depth_format) {
-		throw std::runtime_error(depth_format.error());
+	std::vector<vk::Format> native_formats;
+	native_formats.reserve(color_formats.size());
+	for (auto format : color_formats) {
+		native_formats.emplace_back(native(format));
+	}
+
+	vk::Format using_depth_format = vk::Format::eUndefined;
+	if (attachment_layout.get_depth_format()) {
+		using_depth_format = native(attachment_layout.get_depth_format().value());
 	}
 
 	vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo>
@@ -115,9 +151,9 @@ Pipeline::Pipeline(
 				.renderPass = nullptr,
 			},
 			{
-				.colorAttachmentCount = 1,
-				.pColorAttachmentFormats = &swapchain.get_format(),
-				.depthAttachmentFormat = depth_format.value(),
+				.colorAttachmentCount = static_cast<uint32_t>(native_formats.size()),
+				.pColorAttachmentFormats = native_formats.data(),
+				.depthAttachmentFormat = using_depth_format,
 			}
 		};
 

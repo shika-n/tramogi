@@ -7,7 +7,6 @@
 #include <vector>
 
 namespace vk {
-enum class Format;
 enum class PresentModeKHR;
 class PhysicalDeviceMemoryProperties;
 class SurfaceCapabilitiesKHR;
@@ -20,12 +19,18 @@ class PhysicalDevice;
 
 namespace tramogi::graphics {
 
+enum class Format;
 class Instance;
 
 struct DeviceSuitableness {
 	bool is_suitable = false;
 	uint32_t graphics_queue_index = 0;
 	uint32_t present_queue_index = 0;
+};
+
+struct SurfaceFormat {
+	Format format;
+	bool is_nonlinear;
 };
 
 class PhysicalDevice {
@@ -46,7 +51,7 @@ public:
 		return device_suitableness.present_queue_index;
 	}
 
-	core::Result<vk::Format> get_depth_format() const;
+	core::Result<Format> get_depth_format() const;
 
 	const vk::raii::PhysicalDevice &get_physical_device() const;
 	const vk::raii::SurfaceKHR &get_surface() const {
@@ -55,7 +60,7 @@ public:
 
 	vk::PhysicalDeviceMemoryProperties get_memory_properties() const;
 	vk::SurfaceCapabilitiesKHR get_surface_capabilities() const;
-	std::vector<vk::SurfaceFormatKHR> get_surface_formats() const;
+	std::vector<SurfaceFormat> get_surface_formats() const;
 	std::vector<vk::PresentModeKHR> get_surface_present_modes() const;
 
 private:
