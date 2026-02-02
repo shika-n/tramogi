@@ -404,7 +404,7 @@ private:
 			}
 		);
 		cmd.end();
-		device.submit_graphics_single(cmd);
+		device.submit_graphics_onetime(cmd);
 	}
 
 	void record_command_buffer(uint32_t image_index) {

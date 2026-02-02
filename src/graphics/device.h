@@ -37,7 +37,7 @@ public:
 	Device(Device &&);
 	Device &operator=(Device &&) = delete;
 
-	void submit_graphics_single(const CommandBuffer &command_buffer);
+	void submit_graphics_onetime(const CommandBuffer &command_buffer);
 	void submit_graphics(const CommandBuffer &command_buffer, uint32_t frame_index);
 	core::Result<> present(const Swapchain &swapchain, uint32_t image_index, uint32_t frame_index);
 

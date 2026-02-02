@@ -85,18 +85,18 @@ Device::~Device() = default;
 Device::Device(Device &&) = default;
 // Device &Device::operator=(Device &&) = default;
 
-void Device::submit_graphics_single(const CommandBuffer &command_buffer) {
+void Device::submit_graphics_onetime(const CommandBuffer &command_buffer) {
 	assert(
 		command_buffer.get_type() == CommandBufferType::OneTime &&
 		"Only CommandBuffer of type OneTime maybe submitted with submit_graphics_single()"
 	);
 
-	wait_graphics_queue();
 	vk::SubmitInfo submit_info {
 		.commandBufferCount = 1,
 		.pCommandBuffers = &*command_buffer.get_command_buffer(),
 	};
 	impl->graphics_queue.submit(submit_info);
+	wait_graphics_queue();
 }
 
 void Device::submit_graphics(const CommandBuffer &command_buffer, uint32_t frame_index) {

@@ -21,7 +21,7 @@ DescriptorPool::DescriptorPool(const Device &device, uint32_t max_set)
 		},
 		vk::DescriptorPoolSize {
 			.type = vk::DescriptorType::eCombinedImageSampler,
-			.descriptorCount = 3,
+			.descriptorCount = 6,
 		},
 	};
 
