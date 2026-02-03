@@ -90,11 +90,8 @@ Sampler2D sampler[3];
 
 static float2 vertices[] = {
 	{ -1.0, -1.0 },
-	{ -1.0, 1.0 },
-	{ 1.0, -1.0 },
-	{ 1.0, -1.0 },
-	{ -1.0, 1.0 },
-	{ 1.0, 1.0 },
+	{ -1.0, 3.0 },
+	{ 3.0, -1.0 },
 };
 
 struct ScreenVertexOutput {
