@@ -440,6 +440,7 @@ private:
 			swapchain.get_extent().width,
 			swapchain.get_extent().height,
 			Format::RGBA8Srgb,
+			Image::Usage::GBuffer,
 			false
 		);
 		gbuffer_normal = std::make_unique<InFlightSet<Image>>(
@@ -448,6 +449,7 @@ private:
 			swapchain.get_extent().width,
 			swapchain.get_extent().height,
 			Format::RGBA16Float,
+			Image::Usage::GBuffer,
 			false
 		);
 	}

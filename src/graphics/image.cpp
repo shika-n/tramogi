@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -26,6 +27,19 @@ struct Image::Impl {
 
 	Format format;
 };
+
+vk::ImageUsageFlags native(Image::Usage usage) {
+	switch (usage) {
+	case Image::Usage::GBuffer:
+		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+	case Image::Usage::GBufferDepth:
+		return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
+	case Image::Usage::Texture:
+		return vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
+			   vk::ImageUsageFlagBits::eSampled;
+	}
+	std::unreachable();
+}
 
 uint32_t calculate_mipmap_levels(uint32_t width, uint32_t height) {
 	return std::max(std::log2(width), std::log2(height));
@@ -77,6 +91,7 @@ Image::Image(
 	uint32_t width,
 	uint32_t height,
 	Format format,
+	Usage usage,
 	bool mipmap
 )
 	: impl(std::make_unique<Impl>()) {
@@ -93,9 +108,7 @@ Image::Image(
 		.arrayLayers = 1,
 		.samples = vk::SampleCountFlagBits::e1,
 		.tiling = vk::ImageTiling::eOptimal,
-		.usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled,
-		// .usage = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
-		// 		 vk::ImageUsageFlagBits::eSampled,
+		.usage = native(usage),
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
@@ -178,7 +191,7 @@ DepthImage::DepthImage(
 		.arrayLayers = 1,
 		.samples = vk::SampleCountFlagBits::e1,
 		.tiling = vk::ImageTiling::eOptimal,
-		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
+		.usage = native(Usage::GBufferDepth),
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 

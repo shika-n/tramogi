@@ -25,12 +25,18 @@ class PhysicalDevice;
 
 class Image {
 public:
+	enum class Usage {
+		GBuffer,
+		GBufferDepth,
+		Texture
+	};
 	Image(
 		const PhysicalDevice &physical_device,
 		const Device &device,
 		uint32_t width,
 		uint32_t height,
 		Format format,
+		Usage usage,
 		bool mipmap
 	);
 	virtual ~Image();
