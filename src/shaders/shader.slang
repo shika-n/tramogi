@@ -16,9 +16,12 @@ struct UniformBuffer {
 	float4x4 inverse_projection_view;
 
 	float3 camera_position;
+	float3 world_light_direction;
 
 	float4x4 model;
 	float4x4 model_normal;
+
+	int gbuffer_debug;
 };
 ConstantBuffer<UniformBuffer> ubo;
 
@@ -44,7 +47,6 @@ VertexOutput vert_main(VertexInput input) {
 }
 
 static float z_far = 100;
-static float3 light_world_dir = normalize(float3(0.3, -0.6, 0.1));
 static float3 light_color = float3(1.0, 1.0, 1.0);
 static float shininess = 16.0;
 
@@ -64,7 +66,7 @@ FragmentOutput frag_main(VertexOutput vertex_in) {
 }
 
 float4 blinn_phong(float4 albedo, float3 normal, float3 position) {
-	float3 light_dir = normalize(-light_world_dir);
+	float3 light_dir = normalize(-ubo.world_light_direction);
 	float3 normal = normalize(normal);
 
 	float light_factor = max(dot(light_dir, normal), 0.0);
@@ -118,6 +120,16 @@ float4 screen_frag(ScreenVertexOutput in) : SV_Target {
 	float4 position = mul(ubo.inverse_projection_view, float4(in.pos, depth, 1.0));
 
 	float4 color = blinn_phong(albedo, normal, position.xyz / position.w);
+
+	if (ubo.gbuffer_debug == 1) {
+		color = albedo;
+	} else if (ubo.gbuffer_debug == 2) {
+		color = float4(normal, 1.0);
+	} else if (ubo.gbuffer_debug == 3) {
+		color = float4(float3(depth), 1.0);
+	} else if (ubo.gbuffer_debug == 4) {
+		color = float4(position.xyz / position.w, 1.0);
+	}
 
 	return color;
 }

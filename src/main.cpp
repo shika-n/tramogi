@@ -86,9 +86,12 @@ struct UniformBufferObject {
 	glm::mat4 inverse_projection_view;
 
 	glm::vec3 camera_position;
+	alignas(16) glm::vec3 world_light_direction;
 
 	alignas(16) glm::mat4 model;
 	glm::mat4 model_normal;
+
+	int32_t gbuffer_debug;
 };
 
 class ProjectSkyHigh {
@@ -165,6 +168,10 @@ private:
 	Cube model;
 
 	bool is_imgui_visible = false;
+
+	glm::vec3 world_light_direction = glm::vec3(0.3, -0.6, 0.5);
+
+	int32_t gbuffer_debug = 0;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -299,6 +306,15 @@ private:
 					camera.get_position().z
 				);
 				ImGui::Text("Mouse %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
+
+				ImGui::RadioButton("Shaded", &gbuffer_debug, 0);
+				ImGui::SameLine();
+				ImGui::RadioButton("Albedo", &gbuffer_debug, 1);
+				ImGui::RadioButton("Normal", &gbuffer_debug, 2);
+				ImGui::SameLine();
+				ImGui::RadioButton("Depth", &gbuffer_debug, 3);
+				ImGui::RadioButton("Position", &gbuffer_debug, 4);
+
 				ImGui::End();
 			}
 
@@ -669,6 +685,7 @@ private:
 		static glm::vec3 pos_translate;
 		if (is_imgui_visible) {
 			ImGui::Begin("Properties");
+			ImGui::DragFloat3("Light", &world_light_direction.x, 0.1f, 0, 0, "%0.1f");
 			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f, 0, 0, "%0.1f");
 			ImGui::DragFloat3("Rotation", &rot.x, 0.2f, 0, 360, "%.1f");
 			ImGui::End();
@@ -680,6 +697,7 @@ private:
 			.projection_view = projection_view,
 			.inverse_projection_view = glm::inverse(projection_view),
 			.camera_position = camera.get_position(),
+			.world_light_direction = world_light_direction,
 
 			.model = glm::rotate(
 				glm::rotate(
@@ -695,6 +713,7 @@ private:
 				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
 			.model_normal = glm::identity<glm::mat4>(),
+			.gbuffer_debug = gbuffer_debug,
 		};
 
 		ubo.model_normal = glm::transpose(glm::inverse(ubo.model));
