@@ -26,9 +26,10 @@ class PhysicalDevice;
 class Image {
 public:
 	enum class Usage {
-		GBuffer,
-		GBufferDepth,
-		Texture
+		SampledColorTarget,
+		SampledDepth,
+		Texture,
+		CubeMap,
 	};
 	Image(
 		const PhysicalDevice &physical_device,
@@ -54,12 +55,16 @@ public:
 	uint32_t get_mipmap_level() const {
 		return mipmap_level_count;
 	}
+	Usage get_usage() const {
+		return usage;
+	}
 	virtual vk::ImageAspectFlags get_aspect_flags() const;
 
 protected:
 	struct Impl;
 	std::unique_ptr<Impl> impl;
 
+	Usage usage;
 	uint32_t mipmap_level_count = 1;
 
 	// Protected default ctor for different initialization of derived class
@@ -103,6 +108,23 @@ public:
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl;
+};
+
+class CubeMapImage : public Image {
+public:
+	CubeMapImage(
+		const PhysicalDevice &physical_device,
+		const Device &device,
+		uint32_t width,
+		uint32_t height,
+		Format format,
+		bool mipmap
+	);
+	~CubeMapImage();
+	CubeMapImage(const CubeMapImage &) = delete;
+	CubeMapImage &operator=(const CubeMapImage &) = delete;
+	CubeMapImage(CubeMapImage &&);
+	CubeMapImage &operator=(CubeMapImage &&);
 };
 
 } // namespace tramogi::graphics

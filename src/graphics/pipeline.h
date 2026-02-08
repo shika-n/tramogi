@@ -1,5 +1,6 @@
 #pragma once
 
+#include <initializer_list>
 #include <memory>
 
 namespace vk {
@@ -31,8 +32,8 @@ class Pipeline {
 public:
 	Pipeline(
 		const Device &device,
-		const DescriptorLayout &descriptor_layout,
 		const Shader &shader,
+		std::initializer_list<DescriptorLayout *> descriptor_layouts,
 		const VertexDescriptor &vertex_descriptor,
 		const AttachmentLayout &attachment_layout,
 		PipelineOption pipeline_option

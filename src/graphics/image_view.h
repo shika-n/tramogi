@@ -26,6 +26,11 @@ class SwapchainImage;
 
 class ImageView {
 public:
+	enum class Type {
+		Texture,
+		CubeMap
+	};
+
 	ImageView(const Device &device, const Image &image);
 	ImageView(
 		const Device &device,

@@ -8,12 +8,24 @@
 #include <initializer_list>
 #include <memory>
 #include <span>
+#include <utility>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 namespace tramogi::graphics {
 
 using core::Optional;
+
+vk::AttachmentLoadOp native(AttachmentLayout::LoadOperation operation) {
+	switch (operation) {
+	case AttachmentLayout::LoadOperation::Clear:
+		return vk::AttachmentLoadOp::eClear;
+	case AttachmentLayout::LoadOperation::Load:
+		return vk::AttachmentLoadOp::eLoad;
+	}
+
+	std::unreachable();
+}
 
 struct AttachmentLayout::Impl {
 	std::array<vk::RenderingAttachmentInfo, static_cast<uint8_t>(Type::Count)> attachment_infos;
@@ -49,6 +61,10 @@ void AttachmentLayout::add_attachment(Type type, Format format) {
 	} else if (type == Type::Depth) {
 		is_depth_available = true;
 	}
+}
+
+void AttachmentLayout::set_load_operation(Type type, LoadOperation operation) {
+	impl->attachment_infos[static_cast<uint8_t>(type)].loadOp = native(operation);
 }
 
 std::span<const vk::RenderingAttachmentInfo> AttachmentLayout::get_color_infos(

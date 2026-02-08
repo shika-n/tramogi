@@ -7,9 +7,9 @@ add_library(
 		attachment_info.cpp
 		buffer.cpp
 		command_buffer.cpp
-		descriptor.cpp
 		descriptor_layout.cpp
 		descriptor_pool.cpp
+		descriptor_set.cpp
 		device.cpp
 		dispatch_loader.cpp
 		format.cpp

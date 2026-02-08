@@ -25,7 +25,8 @@ public:
 	void set_key_callback(std::function<void(int, bool)> callback);
 	void set_mouse_callback(
 		std::function<void(int, bool)> button_callback,
-		std::function<void(double, double)> position_callback
+		std::function<void(double, double)> position_callback,
+		std::function<void(double, double)> scroll_callback
 	);
 
 	void request_close();
@@ -52,6 +53,7 @@ private:
 	std::function<void(int, bool)> key_callback;
 	std::function<void(int, bool)> mouse_button_callback;
 	std::function<void(float, float)> mouse_position_callback;
+	std::function<void(double, double)> mouse_scroll_callback;
 
 	static void resize_callback(GLFWwindow *window, int width, int height);
 };

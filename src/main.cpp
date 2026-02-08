@@ -9,6 +9,7 @@
 #include <format>
 #include <functional>
 #include <glm/matrix.hpp>
+#include <initializer_list>
 #include <memory>
 #include <print>
 #include <stdexcept>
@@ -60,6 +61,7 @@
 #include "graphics/swapchain.h"
 #include "graphics/vertex_descriptor.h"
 #include "tramogi/core/io/file.h"
+#include "tramogi/core/io/image_data.h"
 #include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
 #include "tramogi/graphics/buffer.h"
@@ -70,6 +72,7 @@
 
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
+constexpr float FOV = 90;
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -85,7 +88,13 @@ struct UniformBufferObject {
 	glm::mat4 projection_view;
 	glm::mat4 inverse_projection_view;
 
-	glm::vec3 camera_position;
+	alignas(16) glm::vec3 camera_position;
+	alignas(16) glm::vec3 camera_forward;
+	alignas(16) glm::vec3 camera_right;
+	alignas(16) glm::vec3 camera_up;
+	float z_near;
+	float z_far;
+
 	alignas(16) glm::vec3 world_light_direction;
 
 	alignas(16) glm::mat4 model;
@@ -100,8 +109,12 @@ public:
 		: window(WIDTH, HEIGHT, "Tramogi Demo"), instance(window.get_required_extensions()),
 		  physical_device(instance, window.create_surface(instance.get_instance())),
 		  device(physical_device, instance), swapchain(physical_device, device, window.get_size()),
-		  descriptor_pool(device, MAX_FRAMES_IN_FLIGHT + 1), descriptor_set_layout(device, binds),
-		  camera(1280, 720, glm::radians(90.0f)), model(1.0f) {
+		  descriptor_pool(device, MAX_FRAMES_IN_FLIGHT + 1),
+		  camera_descriptor_layout(device, camera_binds),
+		  shading_descriptor_layout(device, shading_binds),
+		  skybox_descriptor_layout(device, skybox_binds),
+		  sky_cubemap(physical_device, device, 512, 512, Format::RGBA8Srgb, false),
+		  camera(WIDTH, HEIGHT, glm::radians(FOV)), model(1.0f) {
 		camera.set_position({0, 0, -8});
 	}
 
@@ -129,21 +142,44 @@ private:
 	std::vector<UniformBuffer> uniform_buffers;
 
 	DescriptorPool descriptor_pool;
-	DescriptorLayout descriptor_set_layout;
-	std::vector<DescriptorSet> descriptor_sets;
+	DescriptorLayout camera_descriptor_layout;
+	DescriptorLayout shading_descriptor_layout;
+	DescriptorLayout skybox_descriptor_layout;
+	std::vector<DescriptorSet> camera_descriptor_sets;
+	std::vector<DescriptorSet> shading_descriptor_sets;
+	std::vector<DescriptorSet> skybox_descriptor_sets;
 
 	std::unique_ptr<Pipeline> gbuffer_pipeline;
 	std::unique_ptr<Pipeline> shading_pipeline;
+	std::unique_ptr<Pipeline> skybox_pipeline;
 
-	constexpr static std::array binds = {
+	constexpr static std::array camera_binds = {
 		DescriptorLayoutBinding {
 			.location = 0,
 			.stage = DescriptorLayoutBinding::Stage::VertexFragment,
 			.type = DescriptorLayoutBinding::Type::UniformbBuffer,
 		},
+	};
+
+	constexpr static std::array shading_binds = {
+		DescriptorLayoutBinding {
+			.location = 0,
+			.count = 3,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
+	};
+
+	constexpr static std::array skybox_binds = {
+		DescriptorLayoutBinding {
+			.location = 0,
+			.count = 1,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
 		DescriptorLayoutBinding {
 			.location = 1,
-			.count = 3,
+			.count = 1,
 			.stage = DescriptorLayoutBinding::Stage::Fragment,
 			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
@@ -152,11 +188,15 @@ private:
 	std::unique_ptr<InFlightSet<DepthImage>> depth_image;
 	std::unique_ptr<InFlightSet<Image>> gbuffer_albedo;
 	std::unique_ptr<InFlightSet<Image>> gbuffer_normal;
+	std::unique_ptr<InFlightSet<Image>> offscreen_framebuffer;
 
 	AttachmentLayout gbuffer_attachment_layout;
-	AttachmentLayout screen_attachment_layout;
+	AttachmentLayout shading_attachment_layout;
+	AttachmentLayout skybox_attachment_layout;
 
 	vk::raii::Sampler sampler = nullptr;
+
+	ImageViewPair<CubeMapImage> sky_cubemap;
 
 	uint32_t current_frame = 0;
 
@@ -172,6 +212,7 @@ private:
 	glm::vec3 world_light_direction = glm::vec3(0.3, -0.6, 0.5);
 
 	int32_t gbuffer_debug = 0;
+	bool show_skybox = true;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -181,7 +222,10 @@ private:
 			[this](int button, bool is_pressed) {
 				mouse_input.set_mouse_button(button, is_pressed);
 			},
-			[this](double x, double y) { mouse_input.set_mouse_position(x, y); }
+			[this](double x, double y) { mouse_input.set_mouse_position(x, y); },
+			[this](double, double y_offset) {
+				camera.set_orbit_distance(camera.get_orbit_distance() + y_offset);
+			}
 		);
 	}
 
@@ -207,18 +251,30 @@ private:
 		create_image_resources();
 		create_graphics_pipeline();
 		create_shading_pipeline();
+		create_skybox_pipeline();
 
 		create_texture_sampler();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
-		descriptor_sets = device.allocate_descriptor_sets(
+		camera_descriptor_sets = device.allocate_descriptor_sets(
 			descriptor_pool,
-			descriptor_set_layout,
+			camera_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+		shading_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			shading_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+		skybox_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			skybox_descriptor_layout,
 			MAX_FRAMES_IN_FLIGHT
 		);
 		create_descriptor_sets();
 		create_command_buffers();
+		create_cubemap();
 	}
 
 	void init_imgui() {
@@ -315,6 +371,8 @@ private:
 				ImGui::RadioButton("Depth", &gbuffer_debug, 3);
 				ImGui::RadioButton("Position", &gbuffer_debug, 4);
 
+				ImGui::Checkbox("Skybox", &show_skybox);
+
 				ImGui::End();
 			}
 
@@ -384,8 +442,10 @@ private:
 
 		gbuffer_pipeline = std::make_unique<Pipeline>(
 			device,
-			descriptor_set_layout,
 			shader_module,
+			std::initializer_list {
+				&camera_descriptor_layout,
+			},
 			vertex_descriptor,
 			gbuffer_attachment_layout,
 			PipelineOption {
@@ -408,19 +468,68 @@ private:
 
 		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, 0);
 
-		screen_attachment_layout.add_attachment(
+		shading_attachment_layout.add_attachment(
 			AttachmentLayout::Type::Color0,
-			swapchain.get_format()
+			offscreen_framebuffer->get_image(0).get_format()
 		);
 
 		shading_pipeline = std::make_unique<Pipeline>(
 			device,
-			descriptor_set_layout,
 			shader_module,
+			std::initializer_list {
+				&camera_descriptor_layout,
+				&shading_descriptor_layout,
+			},
 			vertex_descriptor,
-			screen_attachment_layout,
+			shading_attachment_layout,
 			PipelineOption {
 				.is_depth_test = false,
+				.is_depth_write = false,
+			}
+		);
+	}
+
+	void create_skybox_pipeline() {
+		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		if (!shader_code_result) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
+
+		Shader shader_module(device, shader_code);
+		shader_module.add_vertex_stage("screen_vert");
+		shader_module.add_fragment_stage("skybox_frag");
+
+		skybox_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color0,
+			swapchain.get_format()
+		);
+		skybox_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Depth,
+			depth_image->get_image(0).get_format()
+		);
+
+		skybox_attachment_layout.set_load_operation(
+			AttachmentLayout::Type::Color0,
+			AttachmentLayout::LoadOperation::Load
+		);
+		skybox_attachment_layout.set_load_operation(
+			AttachmentLayout::Type::Depth,
+			AttachmentLayout::LoadOperation::Load
+		);
+
+		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, 0);
+		skybox_pipeline = std::make_unique<Pipeline>(
+			device,
+			shader_module,
+			std::initializer_list {
+				&camera_descriptor_layout,
+				&skybox_descriptor_layout,
+			},
+			vertex_descriptor,
+			skybox_attachment_layout,
+			PipelineOption {
+				.is_depth_test = true,
 				.is_depth_write = false,
 			}
 		);
@@ -440,7 +549,7 @@ private:
 			swapchain.get_extent().width,
 			swapchain.get_extent().height,
 			Format::RGBA8Srgb,
-			Image::Usage::GBuffer,
+			Image::Usage::SampledColorTarget,
 			false
 		);
 		gbuffer_normal = std::make_unique<InFlightSet<Image>>(
@@ -449,7 +558,16 @@ private:
 			swapchain.get_extent().width,
 			swapchain.get_extent().height,
 			Format::RGBA16Float,
-			Image::Usage::GBuffer,
+			Image::Usage::SampledColorTarget,
+			false
+		);
+		offscreen_framebuffer = std::make_unique<InFlightSet<Image>>(
+			physical_device,
+			device,
+			swapchain.get_extent().width,
+			swapchain.get_extent().height,
+			Format::RGBA8Srgb,
+			Image::Usage::SampledColorTarget,
 			false
 		);
 	}
@@ -496,7 +614,7 @@ private:
 
 	void create_descriptor_sets() {
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			std::array<vk::DescriptorBufferInfo, 1> buffer_info {
+			std::array buffer_info {
 				vk::DescriptorBufferInfo {
 					.buffer = uniform_buffers[i].get_buffer(),
 					.offset = 0,
@@ -520,9 +638,21 @@ private:
 					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
 			};
+			std::array skybox_image_info {
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = offscreen_framebuffer->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = sky_cubemap.get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+			};
 			std::array descriptor_writes {
 				vk::WriteDescriptorSet {
-					.dstSet = descriptor_sets[i].get_descriptor_set(),
+					.dstSet = camera_descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 0,
 					.dstArrayElement = 0,
 					.descriptorCount = 1,
@@ -530,12 +660,20 @@ private:
 					.pBufferInfo = buffer_info.data(),
 				},
 				vk::WriteDescriptorSet {
-					.dstSet = descriptor_sets[i].get_descriptor_set(),
-					.dstBinding = 1,
+					.dstSet = shading_descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 0,
 					.dstArrayElement = 0,
 					.descriptorCount = static_cast<uint32_t>(image_info.size()),
 					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
 					.pImageInfo = image_info.data()
+				},
+				vk::WriteDescriptorSet {
+					.dstSet = skybox_descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = static_cast<uint32_t>(skybox_image_info.size()),
+					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+					.pImageInfo = skybox_image_info.data()
 				},
 			};
 			device.get_device().updateDescriptorSets(descriptor_writes, {});
@@ -558,25 +696,7 @@ private:
 		device.submit_graphics_onetime(cmd);
 	}
 
-	void record_command_buffer(uint32_t image_index) {
-		CommandBuffer &command_buffer = command_buffers[current_frame];
-		command_buffer.begin();
-		command_buffer.get_command_buffer().setViewport(
-			0,
-			vk::Viewport(
-				0.0f,
-				0.0f,
-				swapchain.get_extent().width,
-				swapchain.get_extent().height,
-				0.0f,
-				1.0f
-			)
-		);
-		command_buffer.get_command_buffer().setScissor(
-			0,
-			vk::Rect2D(vk::Offset2D(0, 0), swapchain.get_extent())
-		);
-
+	void record_gbuffer_pass(const CommandBuffer &command_buffer) {
 		depth_image->get_image(current_frame).as_depth_target(command_buffer);
 		gbuffer_albedo->get_image(current_frame).as_color_target(command_buffer);
 		gbuffer_normal->get_image(current_frame).as_color_target(command_buffer);
@@ -615,7 +735,7 @@ private:
 			vk::PipelineBindPoint::eGraphics,
 			gbuffer_pipeline->get_layout(),
 			0,
-			*descriptor_sets[current_frame].get_descriptor_set(),
+			*camera_descriptor_sets[current_frame].get_descriptor_set(),
 			nullptr
 		);
 
@@ -623,11 +743,16 @@ private:
 			.drawIndexed(model.get_indices().size(), 11 * 11 * 11, 0, 0, 0);
 
 		command_buffer.get_command_buffer().endRendering();
+	}
 
-		// Light pass
-		swapchain.get_image(image_index).as_attachment(command_buffer);
-		std::span screen_pass_attachments = screen_attachment_layout.get_color_infos({
-			{AttachmentLayout::Type::Color0, &swapchain.get_image_view(image_index)},
+	void record_shading_pass(const CommandBuffer &command_buffer) {
+		gbuffer_albedo->get_image(current_frame).as_sampled(command_buffer);
+		gbuffer_normal->get_image(current_frame).as_sampled(command_buffer);
+		depth_image->get_image(current_frame).as_sampled(command_buffer);
+		offscreen_framebuffer->get_image(current_frame).as_color_target(command_buffer);
+
+		std::span screen_pass_attachments = shading_attachment_layout.get_color_infos({
+			{AttachmentLayout::Type::Color0, &offscreen_framebuffer->get_image_view(current_frame)},
 		});
 		vk::RenderingInfo light_pass_render_info {
 			.renderArea = {.offset = {0, 0}, .extent = swapchain.get_extent()},
@@ -636,19 +761,148 @@ private:
 			.pColorAttachments = screen_pass_attachments.data(),
 		};
 		command_buffer.get_command_buffer().beginRendering(light_pass_render_info);
-
-		gbuffer_albedo->get_image(current_frame).as_sampled(command_buffer);
-		gbuffer_normal->get_image(current_frame).as_sampled(command_buffer);
-		depth_image->get_image(current_frame).as_sampled(command_buffer);
-
 		command_buffer.get_command_buffer().bindPipeline(
 			vk::PipelineBindPoint::eGraphics,
 			shading_pipeline->get_pipeline()
 		);
-		command_buffer.get_command_buffer().draw(6, 1, 0, 0);
+		command_buffer.get_command_buffer().bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			shading_pipeline->get_layout(),
+			0,
+			{
+				*camera_descriptor_sets[current_frame].get_descriptor_set(),
+				*shading_descriptor_sets[current_frame].get_descriptor_set(),
+			},
+			nullptr
+		);
+		command_buffer.get_command_buffer().draw(3, 1, 0, 0);
+		command_buffer.get_command_buffer().endRendering();
+	}
 
+	void record_skybox_pass(const CommandBuffer &command_buffer) {
+		offscreen_framebuffer->get_image(current_frame).as_color_target(command_buffer);
+		depth_image->get_image(current_frame).as_depth_target(command_buffer);
+		sky_cubemap.get_image().as_color_target(command_buffer);
+
+		std::span skybox_pass_attachments = skybox_attachment_layout.get_color_infos({
+			{AttachmentLayout::Type::Color0, &offscreen_framebuffer->get_image_view(current_frame)},
+		});
+		vk::RenderingInfo skybox_pass_render_info {
+			.renderArea = {.offset = {0, 0}, .extent = swapchain.get_extent()},
+			.layerCount = 1,
+			.colorAttachmentCount = static_cast<uint32_t>(skybox_pass_attachments.size()),
+			.pColorAttachments = skybox_pass_attachments.data(),
+			.pDepthAttachment = &skybox_attachment_layout.get_depth_info(
+				depth_image->get_image_view(current_frame)
+			),
+		};
+		command_buffer.get_command_buffer().beginRendering(skybox_pass_render_info);
+
+		command_buffer.get_command_buffer().bindPipeline(
+			vk::PipelineBindPoint::eGraphics,
+			skybox_pipeline->get_pipeline()
+		);
+		command_buffer.get_command_buffer().bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			skybox_pipeline->get_layout(),
+			0,
+			{
+				*camera_descriptor_sets[current_frame].get_descriptor_set(),
+				*skybox_descriptor_sets[current_frame].get_descriptor_set(),
+			},
+			nullptr
+		);
+		command_buffer.get_command_buffer().draw(3, 1, 0, 0);
+
+		command_buffer.get_command_buffer().endRendering();
+	}
+
+	void record_imgui_pass(const CommandBuffer &command_buffer) {
+		vk::RenderingAttachmentInfo attachment_info {
+			.imageView = offscreen_framebuffer->get_image_view(current_frame).get_image_view(),
+			.imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+			.loadOp = vk::AttachmentLoadOp::eLoad,
+			.storeOp = vk::AttachmentStoreOp::eStore,
+		};
+		command_buffer.get_command_buffer().beginRendering({
+			.renderArea = {.offset = {0, 0}, .extent = swapchain.get_extent()},
+			.layerCount = 1,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &attachment_info,
+		});
 		tramogi::graphics::imgui::render(command_buffer.get_command_buffer());
 		command_buffer.get_command_buffer().endRendering();
+	}
+
+	void record_command_buffer(uint32_t image_index) {
+		CommandBuffer &command_buffer = command_buffers[current_frame];
+		command_buffer.begin();
+		command_buffer.get_command_buffer().setViewport(
+			0,
+			vk::Viewport(
+				0.0f,
+				0.0f,
+				swapchain.get_extent().width,
+				swapchain.get_extent().height,
+				0.0f,
+				1.0f
+			)
+		);
+		command_buffer.get_command_buffer().setScissor(
+			0,
+			vk::Rect2D(vk::Offset2D(0, 0), swapchain.get_extent())
+		);
+
+		record_gbuffer_pass(command_buffer);
+		record_shading_pass(command_buffer);
+		if (show_skybox) {
+			record_skybox_pass(command_buffer);
+		}
+		record_imgui_pass(command_buffer);
+
+		vk::ImageBlit2 blit_info {
+			.srcSubresource =
+				{
+					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			.srcOffsets =
+				std::array {
+					vk::Offset3D {0, 0, 0},
+					vk::Offset3D {
+						static_cast<int32_t>(swapchain.get_extent().width),
+						static_cast<int32_t>(swapchain.get_extent().height),
+						0
+					}
+				},
+			.dstSubresource =
+				{
+					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			.dstOffsets = std::array {
+				vk::Offset3D {0, 0, 0},
+				vk::Offset3D {
+					static_cast<int32_t>(swapchain.get_extent().width),
+					static_cast<int32_t>(swapchain.get_extent().height),
+					0
+				}
+			},
+		};
+
+		command_buffer.get_command_buffer().blitImage2({
+			.srcImage = offscreen_framebuffer->get_image(current_frame).get_image(),
+			.srcImageLayout = vk::ImageLayout::eTransferSrcOptimal,
+			.dstImage = swapchain.get_image(image_index).get_image(),
+			.dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+			.regionCount = 1,
+			.pRegions = &blit_info,
+			.filter = vk::Filter::eLinear,
+		});
 
 		swapchain.get_image(image_index).as_present_source(command_buffer);
 
@@ -694,11 +948,19 @@ private:
 		}
 
 		glm::mat4 projection_view = camera.get_projection() * camera.get_view();
+		glm::vec2 half_yfov_tan = camera.get_half_fov_tan();
 
 		UniformBufferObject ubo {
 			.projection_view = projection_view,
 			.inverse_projection_view = glm::inverse(projection_view),
+
 			.camera_position = camera.get_position(),
+			.camera_forward = camera.get_forward(),
+			.camera_right = camera.get_right() * half_yfov_tan.x,
+			.camera_up = camera.get_up() * half_yfov_tan.y,
+			.z_near = camera.get_z_near(),
+			.z_far = camera.get_z_far(),
+
 			.world_light_direction = world_light_direction,
 
 			.model = glm::rotate(
@@ -737,9 +999,63 @@ private:
 		create_image_resources();
 		create_descriptor_sets();
 
-		camera.change_perspective(dimension.x, dimension.y, glm::radians(90.0f));
+		camera.change_perspective(dimension.x, dimension.y, glm::radians(FOV));
 
 		debug_log("Swapchain resized to {}x{}", dimension.x, dimension.y);
+	}
+
+	void create_cubemap() {
+		std::array<ImageData, 6> skybox;
+		skybox[0].load_from_file("textures/skybox/px.png");
+		skybox[1].load_from_file("textures/skybox/nx.png");
+		skybox[2].load_from_file("textures/skybox/py.png");
+		skybox[3].load_from_file("textures/skybox/ny.png");
+		skybox[4].load_from_file("textures/skybox/pz.png");
+		skybox[5].load_from_file("textures/skybox/nz.png");
+
+		StagingBuffer stage(device, skybox[0].get_size() * 6);
+		stage.map();
+		for (auto i = 0; i < 6; ++i) {
+			const auto &image_data = skybox[i];
+			memcpy(
+				static_cast<uint8_t *>(stage.get_mapped_memory()) + (i * image_data.get_size()),
+				image_data.get_data(),
+				image_data.get_size()
+			);
+		}
+
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
+
+		vk::BufferImageCopy2 region {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource =
+				{
+					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 6,
+				},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {
+				.width = static_cast<uint32_t>(skybox[0].get_width()),
+				.height = static_cast<uint32_t>(skybox[0].get_height()),
+				.depth = 1,
+			},
+		};
+
+		cmd.get_command_buffer().copyBufferToImage2({
+			.srcBuffer = stage.get_buffer(),
+			.dstImage = sky_cubemap.get_image().get_image(),
+			.dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+			.regionCount = 1,
+			.pRegions = &region,
+		});
+
+		cmd.end();
+		device.submit_graphics_onetime(cmd);
 	}
 };
 

@@ -35,7 +35,13 @@ function (add_slang_shader_target TARGET)
 	set(SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
 	set(SHADERS_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/shaders)
 	set(SHADER_SOURCES ${SHADERS_DIR}/shader.slang)
-	set(ENTRY_POINTS -entry vert_main -entry frag_main -entry screen_vert -entry screen_frag)
+	set(ENTRY_POINTS
+		-entry vert_main
+		-entry frag_main
+		-entry screen_vert
+		-entry screen_frag
+		-entry skybox_frag
+	)
 	add_custom_command(
 		OUTPUT ${SHADERS_DIR}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR}

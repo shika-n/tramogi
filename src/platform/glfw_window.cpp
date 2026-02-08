@@ -21,6 +21,7 @@ using core::logging::debug_log;
 Window::Window(uint32_t width, uint32_t height, const char *title) {
 	// TODO: Check if llibdecor issue is solved. See: https://github.com/glfw/glfw/issues/2789
 	glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
+	// glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 	if (!glfwInit()) {
 		throw std::runtime_error("Failed to initialize GLFW");
 	}
@@ -49,10 +50,13 @@ void Window::set_key_callback(std::function<void(int, bool)> callback) {
 
 void Window::set_mouse_callback(
 	std::function<void(int, bool)> button_callback,
-	std::function<void(double, double)> position_callback
+	std::function<void(double, double)> position_callback,
+	std::function<void(double, double)> scroll_callback
 ) {
 	mouse_button_callback = button_callback;
 	mouse_position_callback = position_callback;
+	mouse_scroll_callback = scroll_callback;
+
 	glfwSetMouseButtonCallback(window, [](GLFWwindow *window, int button, int action, int) {
 		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
 		instance->mouse_button_callback(button, action == GLFW_PRESS);
@@ -60,6 +64,10 @@ void Window::set_mouse_callback(
 	glfwSetCursorPosCallback(window, [](GLFWwindow *window, double x, double y) {
 		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
 		instance->mouse_position_callback(x, y);
+	});
+	glfwSetScrollCallback(window, [](GLFWwindow *window, double xoffset, double yoffset) {
+		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
+		instance->mouse_scroll_callback(xoffset, yoffset);
 	});
 }
 

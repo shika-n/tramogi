@@ -6,6 +6,7 @@
 #include "image.h"
 #include "shader.h"
 #include "swapchain.h"
+#include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
 #include "vertex_descriptor.h"
 #include <array>
@@ -36,8 +37,8 @@ uint32_t native(bool value) {
 
 Pipeline::Pipeline(
 	const Device &device,
-	const DescriptorLayout &descriptor_layout,
 	const Shader &shader,
+	std::initializer_list<DescriptorLayout *> descriptor_layouts,
 	const VertexDescriptor &vertex_descriptor,
 	const AttachmentLayout &attachment_layout,
 	PipelineOption pipeline_option
@@ -51,9 +52,15 @@ Pipeline::Pipeline(
 
 	std::span color_formats = attachment_layout.get_color_formats();
 
+	std::vector<vk::DescriptorSetLayout> set_layouts;
+	set_layouts.reserve(descriptor_layouts.size());
+	for (auto descriptor_layout : descriptor_layouts) {
+		set_layouts.push_back(descriptor_layout->get_layout());
+	}
+
 	vk::PipelineLayoutCreateInfo pipeline_layout_info {
-		.setLayoutCount = 1,
-		.pSetLayouts = &*descriptor_layout.get_layout(),
+		.setLayoutCount = static_cast<uint32_t>(set_layouts.size()),
+		.pSetLayouts = set_layouts.data(),
 		.pushConstantRangeCount = 0,
 	};
 	impl->layout = vk::raii::PipelineLayout(device.get_device(), pipeline_layout_info);
@@ -111,7 +118,7 @@ Pipeline::Pipeline(
 	vk::PipelineDepthStencilStateCreateInfo depth_stencil_info {
 		.depthTestEnable = native(pipeline_option.is_depth_test),
 		.depthWriteEnable = native(pipeline_option.is_depth_write),
-		.depthCompareOp = vk::CompareOp::eLess,
+		.depthCompareOp = vk::CompareOp::eLessOrEqual,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False,
 	};

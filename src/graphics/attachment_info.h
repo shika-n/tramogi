@@ -25,6 +25,10 @@ public:
 		Depth,
 		Count
 	};
+	enum class LoadOperation {
+		Clear,
+		Load,
+	};
 	constexpr static uint8_t MAX_COLOR_ATTACHMENTS = static_cast<uint8_t>(Type::Color3) + 1;
 
 	AttachmentLayout();
@@ -35,6 +39,7 @@ public:
 	AttachmentLayout &operator=(AttachmentLayout &&);
 
 	void add_attachment(Type type, Format format);
+	void set_load_operation(Type type, LoadOperation operation);
 
 	bool is_depth_exists() const;
 

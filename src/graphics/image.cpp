@@ -25,15 +25,18 @@ struct Image::Impl {
 	vk::raii::Image image = nullptr;
 	vk::raii::DeviceMemory memory = nullptr;
 
+	vk::ImageLayout current_layout = vk::ImageLayout::eUndefined;
+
 	Format format;
 };
 
 vk::ImageUsageFlags native(Image::Usage usage) {
 	switch (usage) {
-	case Image::Usage::GBuffer:
+	case Image::Usage::SampledColorTarget:
 		return vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
-	case Image::Usage::GBufferDepth:
+	case Image::Usage::SampledDepth:
 		return vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
+	case Image::Usage::CubeMap:
 	case Image::Usage::Texture:
 		return vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst |
 			   vk::ImageUsageFlagBits::eSampled;
@@ -54,7 +57,8 @@ void transition_image_layout(
 	vk::AccessFlags2 dst_access_mask,
 	vk::PipelineStageFlags2 src_stage_mask,
 	vk::PipelineStageFlags2 dst_stage_mask,
-	vk::ImageAspectFlags aspect_flags
+	vk::ImageAspectFlags aspect_flags,
+	uint32_t layer_count
 ) {
 	vk::ImageMemoryBarrier2 barrier = {
 		.srcStageMask = src_stage_mask,
@@ -71,7 +75,7 @@ void transition_image_layout(
 			.baseMipLevel = 0,
 			.levelCount = 1,
 			.baseArrayLayer = 0,
-			.layerCount = 1,
+			.layerCount = layer_count,
 		}
 	};
 
@@ -94,7 +98,7 @@ Image::Image(
 	Usage usage,
 	bool mipmap
 )
-	: impl(std::make_unique<Impl>()) {
+	: impl(std::make_unique<Impl>()), usage(Usage::Texture) {
 	impl->format = format;
 	if (mipmap) {
 		mipmap_level_count = calculate_mipmap_levels(width, height);
@@ -128,31 +132,45 @@ Image::Image(Image &&) = default;
 Image &Image::operator=(Image &&) = default;
 
 void Image::as_color_target(const CommandBuffer &cmd) const {
+	uint32_t layer_count = 1;
+	if (usage == Usage::CubeMap) {
+		layer_count = 6;
+	}
+
 	transition_image_layout(
 		cmd,
 		impl->image,
-		vk::ImageLayout::eUndefined,
+		impl->current_layout,
 		vk::ImageLayout::eColorAttachmentOptimal,
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor
+		vk::ImageAspectFlagBits::eColor,
+		layer_count
 	);
+	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
 }
 
 void Image::as_sampled(const CommandBuffer &cmd) const {
+	uint32_t layer_count = 1;
+	if (usage == Usage::CubeMap) {
+		layer_count = 6;
+	}
+
 	transition_image_layout(
 		cmd,
 		impl->image,
-		vk::ImageLayout::eColorAttachmentOptimal,
+		impl->current_layout,
 		vk::ImageLayout::eShaderReadOnlyOptimal,
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		vk::AccessFlagBits2::eShaderRead,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor
+		vk::ImageAspectFlagBits::eColor,
+		layer_count
 	);
+	impl->current_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 }
 
 const vk::raii::Image &Image::get_image() const {
@@ -183,6 +201,8 @@ DepthImage::DepthImage(
 		mipmap_level_count = calculate_mipmap_levels(width, height);
 	}
 
+	usage = Usage::SampledDepth;
+
 	vk::ImageCreateInfo create_info {
 		.imageType = vk::ImageType::e2D,
 		.format = native(impl->format),
@@ -191,7 +211,7 @@ DepthImage::DepthImage(
 		.arrayLayers = 1,
 		.samples = vk::SampleCountFlagBits::e1,
 		.tiling = vk::ImageTiling::eOptimal,
-		.usage = native(Usage::GBufferDepth),
+		.usage = native(usage),
 		.sharingMode = vk::SharingMode::eExclusive,
 	};
 
@@ -210,7 +230,7 @@ void DepthImage::as_depth_target(const CommandBuffer &cmd) const {
 	transition_image_layout(
 		cmd,
 		impl->image,
-		vk::ImageLayout::eUndefined,
+		impl->current_layout,
 		vk::ImageLayout::eDepthAttachmentOptimal,
 		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
 		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
@@ -218,8 +238,10 @@ void DepthImage::as_depth_target(const CommandBuffer &cmd) const {
 			vk::PipelineStageFlagBits2::eLateFragmentTests,
 		vk::PipelineStageFlagBits2::eEarlyFragmentTests |
 			vk::PipelineStageFlagBits2::eLateFragmentTests,
-		vk::ImageAspectFlagBits::eDepth
+		vk::ImageAspectFlagBits::eDepth,
+		1
 	);
+	impl->current_layout = vk::ImageLayout::eDepthAttachmentOptimal;
 }
 
 vk::ImageAspectFlags DepthImage::get_aspect_flags() const {
@@ -247,7 +269,8 @@ void SwapchainImage::as_attachment(const CommandBuffer &cmd) const {
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor
+		vk::ImageAspectFlagBits::eColor,
+		1
 	);
 }
 void SwapchainImage::as_present_source(const CommandBuffer &cmd) const {
@@ -260,13 +283,55 @@ void SwapchainImage::as_present_source(const CommandBuffer &cmd) const {
 		{},
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::PipelineStageFlagBits2::eBottomOfPipe,
-		vk::ImageAspectFlagBits::eColor
+		vk::ImageAspectFlagBits::eColor,
+		1
 	);
 }
 
 vk::Image SwapchainImage::get_image() const {
 	return impl->image;
 }
+
+CubeMapImage::CubeMapImage(
+	const PhysicalDevice &,
+	const Device &device,
+	uint32_t width,
+	uint32_t height,
+	Format format,
+	bool mipmap
+) {
+	impl->format = format;
+	if (mipmap) {
+		mipmap_level_count = calculate_mipmap_levels(width, height);
+	}
+
+	usage = Usage::CubeMap;
+
+	vk::ImageCreateInfo create_info {
+		.imageType = vk::ImageType::e2D,
+		.format = native(impl->format),
+		.extent = {width, height, 1},
+		.mipLevels = mipmap_level_count,
+		.arrayLayers = 6,
+		.samples = vk::SampleCountFlagBits::e1,
+		.tiling = vk::ImageTiling::eOptimal,
+		.usage = native(usage),
+		.sharingMode = vk::SharingMode::eExclusive,
+	};
+	impl->image = vk::raii::Image(device.get_device(), create_info);
+	auto allocation_result =
+		allocate_memory(device, impl->image.getMemoryRequirements(), MemoryType::Gpu);
+	if (!allocation_result) {
+		throw std::runtime_error(allocation_result.error());
+	}
+
+	impl->memory = std::move(allocation_result.value());
+	impl->image.bindMemory(impl->memory, 0);
+}
+
+CubeMapImage::~CubeMapImage() = default;
+CubeMapImage::CubeMapImage(CubeMapImage &&) = default;
+CubeMapImage &CubeMapImage::operator=(CubeMapImage &&) = default;
 
 } // namespace tramogi::graphics
 

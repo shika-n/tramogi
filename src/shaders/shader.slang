@@ -16,6 +16,12 @@ struct UniformBuffer {
 	float4x4 inverse_projection_view;
 
 	float3 camera_position;
+	float3 camera_forward;
+	float3 camera_right;
+	float3 camera_up;
+	float z_near;
+	float z_far;
+
 	float3 world_light_direction;
 
 	float4x4 model;
@@ -23,7 +29,20 @@ struct UniformBuffer {
 
 	int gbuffer_debug;
 };
+
+struct SkyBoxParams {
+	Sampler2D depth_sampler;
+	SamplerCube skybox_sampler;
+};
+
+[[vk_binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
+
+[[vk_binding(0, 1)]]
+Sampler2D sampler[3];
+
+[[vk_binding(0, 1)]]
+ParameterBlock<SkyBoxParams> skybox;
 
 [shader("vertex")]
 VertexOutput vert_main(VertexInput input) {
@@ -46,7 +65,6 @@ VertexOutput vert_main(VertexInput input) {
 	return output;
 }
 
-static float z_far = 100;
 static float3 light_color = float3(1.0, 1.0, 1.0);
 static float shininess = 16.0;
 
@@ -54,6 +72,10 @@ struct FragmentOutput {
 	float4 albedo : SV_Target0;
 	float4 normal : SV_Target1;
 };
+
+float linearize_depth(float depth, float z_near, float z_far) {
+	return (z_near * z_far / (z_far + depth * (z_near - z_far))) / (z_far - z_near);
+}
 
 [shader("fragment")]
 FragmentOutput frag_main(VertexOutput vertex_in) {
@@ -79,14 +101,12 @@ float4 blinn_phong(float4 albedo, float3 normal, float3 position) {
 						  ((shininess + 2) / (8 * 3.14));
 	}
 
-	float3 ambient_color = 0.01 * albedo.xyz;
+	float3 ambient_color = 0.1 * albedo.xyz;
 	float3 diffuse_color = light_factor * light_color * albedo.xyz;
 	float3 specular_color = specular_factor * light_color * float3(1.0);
 
 	return float4(ambient_color + diffuse_color + specular_color, 1.0);
 }
-
-Sampler2D sampler[3];
 
 static float2 vertices[] = {
 	{ -1.0, -1.0 },
@@ -96,14 +116,14 @@ static float2 vertices[] = {
 
 struct ScreenVertexOutput {
 	float4 position : SV_Position;
-	float2 pos;
+	float2 ndc;
 	float2 screen_uv;
 };
 
 [shader("vertex")]
 ScreenVertexOutput screen_vert(uint32_t vertex_id: SV_VertexID) {
 	return {
-		float4(vertices[vertex_id], 0.0, 1.0),
+		float4(vertices[vertex_id], 1.0, 1.0),
 		vertices[vertex_id],
 		(vertices[vertex_id] + 1.0) / 2.0,
 	};
@@ -114,7 +134,7 @@ float4 screen_frag(ScreenVertexOutput in) : SV_Target {
 	float4 albedo = sampler[0].Sample(in.screen_uv);
 	float3 normal = sampler[1].Sample(in.screen_uv).xyz;
 	float depth = sampler[2].Sample(in.screen_uv).r;
-	float4 position = mul(ubo.inverse_projection_view, float4(in.pos, depth, 1.0));
+	float4 position = mul(ubo.inverse_projection_view, float4(in.ndc, depth, 1.0));
 
 	float4 color = blinn_phong(albedo, normal, position.xyz / position.w);
 
@@ -123,10 +143,20 @@ float4 screen_frag(ScreenVertexOutput in) : SV_Target {
 	} else if (ubo.gbuffer_debug == 2) {
 		color = float4(normal, 1.0);
 	} else if (ubo.gbuffer_debug == 3) {
-		color = float4(float3(depth), 1.0);
+		color = float4(float3(linearize_depth(depth, ubo.z_near, ubo.z_far)), 1.0);
 	} else if (ubo.gbuffer_debug == 4) {
 		color = float4(position.xyz / position.w, 1.0);
 	}
+
+	return color;
+}
+
+[shader("fragment")]
+float4 skybox_frag(ScreenVertexOutput in) : SV_Target {
+	float3 camera_texel_dir = normalize(
+		ubo.camera_forward + (in.ndc.x * ubo.camera_right) + (-in.ndc.y * ubo.camera_up)
+	);
+	float4 color = float4(skybox.skybox_sampler.Sample(camera_texel_dir).xyz, 1.0);
 
 	return color;
 }

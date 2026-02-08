@@ -17,17 +17,17 @@ DescriptorPool::DescriptorPool(const Device &device, uint32_t max_set)
 	std::array pool_sizes {
 		vk::DescriptorPoolSize {
 			.type = vk::DescriptorType::eUniformBuffer,
-			.descriptorCount = 2,
+			.descriptorCount = 200,
 		},
 		vk::DescriptorPoolSize {
 			.type = vk::DescriptorType::eCombinedImageSampler,
-			.descriptorCount = 6,
+			.descriptorCount = 200,
 		},
 	};
 
 	vk::DescriptorPoolCreateInfo pool_info {
 		.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-		.maxSets = max_set,
+		.maxSets = max_set * 3,
 		.poolSizeCount = pool_sizes.size(),
 		.pPoolSizes = pool_sizes.data(),
 	};
