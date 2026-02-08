@@ -1,6 +1,6 @@
 #pragma once
 
-#include <memory>
+#include "tramogi/core/pointers.h"
 #include <vector>
 
 namespace vk::raii {
@@ -25,7 +25,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 } // namespace tramogi::graphics

@@ -137,8 +137,8 @@ private:
 
 	std::vector<CommandBuffer> command_buffers;
 
-	std::unique_ptr<VertexBuffer> vertex_buffer;
-	std::unique_ptr<IndexBuffer> index_buffer;
+	UniquePtr<VertexBuffer> vertex_buffer;
+	UniquePtr<IndexBuffer> index_buffer;
 	std::vector<UniformBuffer> uniform_buffers;
 
 	DescriptorPool descriptor_pool;
@@ -149,9 +149,9 @@ private:
 	std::vector<DescriptorSet> shading_descriptor_sets;
 	std::vector<DescriptorSet> skybox_descriptor_sets;
 
-	std::unique_ptr<Pipeline> gbuffer_pipeline;
-	std::unique_ptr<Pipeline> shading_pipeline;
-	std::unique_ptr<Pipeline> skybox_pipeline;
+	UniquePtr<Pipeline> gbuffer_pipeline;
+	UniquePtr<Pipeline> shading_pipeline;
+	UniquePtr<Pipeline> skybox_pipeline;
 
 	constexpr static std::array camera_binds = {
 		DescriptorLayoutBinding {
@@ -185,10 +185,10 @@ private:
 		},
 	};
 
-	std::unique_ptr<InFlightSet<DepthImage>> depth_image;
-	std::unique_ptr<InFlightSet<Image>> gbuffer_albedo;
-	std::unique_ptr<InFlightSet<Image>> gbuffer_normal;
-	std::unique_ptr<InFlightSet<Image>> offscreen_framebuffer;
+	UniquePtr<InFlightSet<DepthImage>> depth_image;
+	UniquePtr<InFlightSet<Image>> gbuffer_albedo;
+	UniquePtr<InFlightSet<Image>> gbuffer_normal;
+	UniquePtr<InFlightSet<Image>> offscreen_framebuffer;
 
 	AttachmentLayout gbuffer_attachment_layout;
 	AttachmentLayout shading_attachment_layout;

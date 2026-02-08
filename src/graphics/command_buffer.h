@@ -1,6 +1,6 @@
 #pragma once
 
-#include <memory>
+#include "tramogi/core/pointers.h"
 
 namespace vk {
 class CommandBuffer;
@@ -39,7 +39,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 
 	CommandBufferType type;
 };

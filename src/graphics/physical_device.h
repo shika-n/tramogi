@@ -1,8 +1,8 @@
 #pragma once
 
 #include "surface.h"
+#include "tramogi/core/pointers.h"
 #include "tramogi/core/types.h"
-#include <memory>
 #include <stdint.h>
 #include <vector>
 
@@ -65,7 +65,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 	Surface surface;
 	DeviceSuitableness device_suitableness;
 };

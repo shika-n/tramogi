@@ -1,8 +1,8 @@
 #pragma once
 
 #include "image_view.h"
+#include "tramogi/core/pointers.h"
 #include <cstdint>
-#include <memory>
 
 namespace vk {
 template <class T> class Flags;
@@ -62,7 +62,7 @@ public:
 
 protected:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 
 	Usage usage;
 	uint32_t mipmap_level_count = 1;
@@ -107,7 +107,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 class CubeMapImage : public Image {

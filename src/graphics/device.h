@@ -1,8 +1,8 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include "tramogi/core/types.h"
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 namespace vk {
@@ -65,7 +65,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 
 	const PhysicalDevice &physical_device;
 

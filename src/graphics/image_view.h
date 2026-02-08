@@ -1,8 +1,8 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include <concepts>
 #include <cstdint>
-#include <memory>
 #include <utility>
 
 namespace vk {
@@ -49,7 +49,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 template <class T, class U>

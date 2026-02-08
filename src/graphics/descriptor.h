@@ -1,7 +1,7 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include <cstdint>
-#include <memory>
 #include <span>
 
 namespace vk {
@@ -48,7 +48,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 class DescriptorSet {
@@ -64,7 +64,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 } // namespace tramogi::graphics

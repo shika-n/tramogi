@@ -6,7 +6,6 @@
 #include "image.h"
 #include "shader.h"
 #include "swapchain.h"
-#include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
 #include "vertex_descriptor.h"
 #include <array>

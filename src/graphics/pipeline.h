@@ -1,7 +1,7 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include <initializer_list>
-#include <memory>
 
 namespace vk {
 class VertexInputAttributeDescription;
@@ -49,7 +49,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 } // namespace tramogi::graphics

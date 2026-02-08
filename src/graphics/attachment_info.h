@@ -1,10 +1,10 @@
 #pragma once
 
 #include "format.h"
+#include "tramogi/core/pointers.h"
 #include "tramogi/core/types.h"
 #include <cstdint>
 #include <initializer_list>
-#include <memory>
 #include <span>
 
 namespace vk {
@@ -52,7 +52,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 	std::array<Format, static_cast<uint8_t>(Type::Count)> formats;
 	uint8_t color_attachment_count = 0;
 	bool is_depth_available = false;

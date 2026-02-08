@@ -1,7 +1,7 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include <cstdint>
-#include <memory>
 
 namespace vk::raii {
 class DescriptorPool;
@@ -24,7 +24,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 } // namespace tramogi::graphics

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "tramogi/core/pointers.h"
 #include <cstdint>
-#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -34,7 +34,7 @@ public:
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl;
+	core::UniquePtr<Impl> impl;
 };
 
 } // namespace tramogi::graphics
