@@ -118,6 +118,10 @@ public:
 		camera.set_position({0, 0, -8});
 	}
 
+	~ProjectSkyHigh() {
+		debug_log("Engine dtor called");
+	}
+
 	void run() {
 		init_window();
 		init_vulkan();
@@ -1062,9 +1066,8 @@ private:
 int main() {
 	debug_log("Running in DEBUG mode");
 
-	ProjectSkyHigh skyhigh;
-
 	try {
+		ProjectSkyHigh skyhigh;
 		skyhigh.run();
 	} catch (const vk::SystemError &e) {
 		std::println(stderr, "Vulkan Error: {}", e.what());
