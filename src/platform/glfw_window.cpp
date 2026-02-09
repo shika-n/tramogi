@@ -21,7 +21,13 @@ using core::logging::debug_log;
 Window::Window(uint32_t width, uint32_t height, const char *title) {
 	// TODO: Check if llibdecor issue is solved. See: https://github.com/glfw/glfw/issues/2789
 	glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_WAYLAND_DISABLE_LIBDECOR);
-	// glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+
+#if defined(__linux) && !defined(NDEBUG)
+	// For Renderdoc. Renderdoc has no wayland support yet
+	glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+#define TRAMOGI_USING_X11_DEBUG
+#endif
+
 	if (!glfwInit()) {
 		throw std::runtime_error("Failed to initialize GLFW");
 	}
@@ -44,7 +50,12 @@ void Window::set_key_callback(std::function<void(int, bool)> callback) {
 			return;
 		}
 		Window *instance = static_cast<Window *>(glfwGetWindowUserPointer(window));
+
+#ifdef TRAMOGI_USING_X11_DEBUG
+		instance->key_callback(scancode - 8, action == GLFW_PRESS);
+#else
 		instance->key_callback(scancode, action == GLFW_PRESS);
+#endif
 	});
 }
 
