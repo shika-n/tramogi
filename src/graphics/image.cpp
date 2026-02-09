@@ -6,6 +6,7 @@
 #include "image_view.h"
 #include "physical_device.h"
 #include "tramogi/core/types.h"
+#include "vulkan/vulkan.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,8 @@ struct Image::Impl {
 	vk::raii::DeviceMemory memory = nullptr;
 
 	vk::ImageLayout current_layout = vk::ImageLayout::eUndefined;
+	vk::AccessFlags2 current_access_mask = vk::AccessFlagBits2::eNone;
+	vk::PipelineStageFlags2 current_stage_mask = vk::PipelineStageFlagBits2::eNone;
 
 	Format format;
 };
@@ -142,14 +145,16 @@ void Image::as_color_target(const CommandBuffer &cmd) const {
 		impl->image,
 		impl->current_layout,
 		vk::ImageLayout::eColorAttachmentOptimal,
+		impl->current_access_mask,
 		vk::AccessFlagBits2::eColorAttachmentWrite,
-		vk::AccessFlagBits2::eColorAttachmentWrite,
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::ImageAspectFlagBits::eColor,
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
+	impl->current_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+	impl->current_stage_mask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
 }
 
 void Image::as_transfer_dst(const CommandBuffer &cmd) const {
@@ -163,14 +168,16 @@ void Image::as_transfer_dst(const CommandBuffer &cmd) const {
 		impl->image,
 		impl->current_layout,
 		vk::ImageLayout::eTransferDstOptimal,
+		impl->current_access_mask,
 		vk::AccessFlagBits2::eColorAttachmentWrite,
-		vk::AccessFlagBits2::eColorAttachmentWrite,
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::ImageAspectFlagBits::eColor,
 		layer_count
 	);
-	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
+	impl->current_layout = vk::ImageLayout::eTransferDstOptimal;
+	impl->current_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+	impl->current_stage_mask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
 }
 
 void Image::as_sampled(const CommandBuffer &cmd) const {
@@ -184,14 +191,16 @@ void Image::as_sampled(const CommandBuffer &cmd) const {
 		impl->image,
 		impl->current_layout,
 		vk::ImageLayout::eShaderReadOnlyOptimal,
-		vk::AccessFlagBits2::eColorAttachmentWrite,
+		impl->current_access_mask,
 		vk::AccessFlagBits2::eShaderRead,
-		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
 		vk::ImageAspectFlagBits::eColor,
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	impl->current_access_mask = vk::AccessFlagBits2::eShaderRead;
+	impl->current_stage_mask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
 }
 
 const vk::raii::Image &Image::get_image() const {
@@ -253,16 +262,18 @@ void DepthImage::as_depth_target(const CommandBuffer &cmd) const {
 		impl->image,
 		impl->current_layout,
 		vk::ImageLayout::eDepthAttachmentOptimal,
+		impl->current_access_mask,
 		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-		vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-		vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-			vk::PipelineStageFlagBits2::eLateFragmentTests,
+		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eEarlyFragmentTests |
 			vk::PipelineStageFlagBits2::eLateFragmentTests,
 		vk::ImageAspectFlagBits::eDepth,
 		1
 	);
 	impl->current_layout = vk::ImageLayout::eDepthAttachmentOptimal;
+	impl->current_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+	impl->current_stage_mask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+							   vk::PipelineStageFlagBits2::eLateFragmentTests;
 }
 
 vk::ImageAspectFlags DepthImage::get_aspect_flags() const {
