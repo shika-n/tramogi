@@ -14,6 +14,7 @@ public struct UniformBuffer {
 	public float3 world_light_direction;
 
 	public int gbuffer_debug;
+	public uint8_t debug_options;
 };
 
 

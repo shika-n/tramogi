@@ -80,12 +80,16 @@ constexpr float FOV = 90;
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
 using namespace tramogi::core;
-using namespace tramogi::engine::primitives;
+using namespace tramogi::engine;
 using namespace tramogi::graphics;
 using namespace tramogi::input;
 using namespace tramogi::platform;
 
 using namespace tramogi::core::logging;
+
+using tramogi::engine::primitives::BasicVertex;
+using tramogi::engine::primitives::Cube;
+using tramogi::graphics::primitives::HeightmapTerrain;
 
 struct CameraUniformBufferObject {
 	glm::mat4 projection_view;
@@ -101,6 +105,7 @@ struct CameraUniformBufferObject {
 	alignas(16) glm::vec3 world_light_direction;
 
 	int32_t gbuffer_debug;
+	uint8_t debug_options;
 };
 
 struct ObjectUniformBufferObject {
@@ -236,13 +241,14 @@ private:
 	Mouse mouse_input;
 
 	Cube model;
-	UniquePtr<primitives::HeightmapTerrain> terrain;
+	UniquePtr<HeightmapTerrain> terrain;
 
 	bool is_imgui_visible = false;
 
 	glm::vec3 world_light_direction = glm::vec3(0.3, -0.6, 0.5);
 
 	int32_t gbuffer_debug = 0;
+	uint8_t debug_options = 0;
 	bool show_skybox = true;
 
 	void init_window() {
@@ -396,6 +402,22 @@ private:
 				ImGui::RadioButton("Position", &gbuffer_debug, 4);
 
 				ImGui::Checkbox("Skybox", &show_skybox);
+
+				static bool fog_enabled = true;
+				static bool specular_enabled = true;
+				ImGui::Checkbox("Fog", &fog_enabled);
+				ImGui::SameLine();
+				ImGui::Checkbox("Specular", &specular_enabled);
+				if (fog_enabled) {
+					debug_options &= (0xFF ^ 0x1);
+				} else {
+					debug_options |= 0x1;
+				}
+				if (specular_enabled) {
+					debug_options &= (0xFF ^ (0x1 << 1));
+				} else {
+					debug_options |= 0x1 << 1;
+				}
 
 				ImGui::End();
 			}
@@ -854,12 +876,23 @@ private:
 		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
 		command_buffer.get_command_buffer()
 			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+
+		uint32_t texture_index = 0;
+		vk::PushConstantsInfo push_contant_info {
+			.layout = gbuffer_pipeline->get_layout(),
+			.stageFlags = vk::ShaderStageFlagBits::eFragment,
+			.size = sizeof(texture_index),
+			.pValues = &texture_index,
+		};
+		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
 		command_buffer.get_command_buffer().drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
 
 		command_buffer.get_command_buffer()
 			.bindVertexBuffers(0, *terrain_vertex_buffer->get_buffer(), {0});
 		command_buffer.get_command_buffer()
 			.bindIndexBuffer(*terrain_index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+		texture_index = 1;
+		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
 		command_buffer.get_command_buffer().drawIndexed(terrain->get_indices().size(), 1, 0, 0, 0);
 
 		command_buffer.get_command_buffer().endRendering();
@@ -1084,6 +1117,7 @@ private:
 			.world_light_direction = world_light_direction,
 
 			.gbuffer_debug = gbuffer_debug,
+			.debug_options = debug_options,
 		};
 
 		uniform_buffers[current_image].upload_data(&ubo);
@@ -1203,7 +1237,7 @@ private:
 			std::span {static_cast<const float *>(image_data.get_data()), image_data.get_size()}
 		);
 
-		terrain = std::make_unique<primitives::HeightmapTerrain>(200, 200, 128, 128, 10, heightmap);
+		terrain = std::make_unique<HeightmapTerrain>(200, 200, 128, 128, 10, heightmap);
 
 		result = image_data.load_from_file("textures/terrain_albedo.png");
 		if (!result) {

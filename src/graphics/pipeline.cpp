@@ -56,11 +56,18 @@ Pipeline::Pipeline(
 	for (auto descriptor_layout : descriptor_layouts) {
 		set_layouts.push_back(descriptor_layout->get_layout());
 	}
-
+	std::array pc_range {
+		vk::PushConstantRange {
+			.stageFlags = vk::ShaderStageFlagBits::eFragment,
+			.offset = 0,
+			.size = sizeof(uint32_t),
+		},
+	};
 	vk::PipelineLayoutCreateInfo pipeline_layout_info {
 		.setLayoutCount = static_cast<uint32_t>(set_layouts.size()),
 		.pSetLayouts = set_layouts.data(),
-		.pushConstantRangeCount = 0,
+		.pushConstantRangeCount = pc_range.size(),
+		.pPushConstantRanges = pc_range.data(),
 	};
 	impl->layout = vk::raii::PipelineLayout(device.get_device(), pipeline_layout_info);
 

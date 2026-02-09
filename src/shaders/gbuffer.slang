@@ -30,6 +30,9 @@ ConstantBuffer<ObjectUniformBuffer> object_ubo;
 [[vk_binding(1, 1)]]
 Sampler2D sampler;
 
+[[vk_push_constant]]
+const uint32_t texture_index;
+
 [shader("vertex")]
 VertexOutput vert_main(VertexInput input) {
 	float4 world_position = mul(object_ubo.model, float4(input.position, 1.0));
@@ -49,8 +52,11 @@ FragmentOutput frag_main(VertexOutput vertex_in) {
 	float4 sampled_albedo = sampler.Sample(vertex_in.uv);
 
 	FragmentOutput output;
-	output.albedo =
-		float4(vertex_in.color * lerp(float3(1.0), sampled_albedo.xyz, sampled_albedo.w), 1.0);
+	if (texture_index > 0) {
+		output.albedo = float4(sampled_albedo.xyz, 1.0);
+	} else {
+		output.albedo = float4(vertex_in.color, 1.0);
+	}
 	output.normal = float4(normal, 1.0);
 	return output;
 }
