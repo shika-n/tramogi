@@ -152,6 +152,27 @@ void Image::as_color_target(const CommandBuffer &cmd) const {
 	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
 }
 
+void Image::as_transfer_dst(const CommandBuffer &cmd) const {
+	uint32_t layer_count = 1;
+	if (usage == Usage::CubeMap) {
+		layer_count = 6;
+	}
+
+	transition_image_layout(
+		cmd,
+		impl->image,
+		impl->current_layout,
+		vk::ImageLayout::eTransferDstOptimal,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::AccessFlagBits2::eColorAttachmentWrite,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+		vk::ImageAspectFlagBits::eColor,
+		layer_count
+	);
+	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
+}
+
 void Image::as_sampled(const CommandBuffer &cmd) const {
 	uint32_t layer_count = 1;
 	if (usage == Usage::CubeMap) {

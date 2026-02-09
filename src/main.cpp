@@ -40,8 +40,10 @@
 #include <imgui_impl_vulkan.h>
 #include <imgui_internal.h>
 
+#include "core/heightmap.h"
 #include "engine/camera.h"
 #include "engine/primitives/cube.h"
+#include "engine/primitives/heightmap_terrain.h"
 #include "graphics/allocator.h"
 #include "graphics/attachment_info.h"
 #include "graphics/command_buffer.h"
@@ -63,6 +65,7 @@
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/logging/logging.h"
+#include "tramogi/core/pointers.h"
 #include "tramogi/core/types.h"
 #include "tramogi/graphics/buffer.h"
 #include "tramogi/graphics/imgui/imgui_loader.h"
@@ -84,7 +87,7 @@ using namespace tramogi::platform;
 
 using namespace tramogi::core::logging;
 
-struct UniformBufferObject {
+struct CameraUniformBufferObject {
 	glm::mat4 projection_view;
 	glm::mat4 inverse_projection_view;
 
@@ -97,10 +100,12 @@ struct UniformBufferObject {
 
 	alignas(16) glm::vec3 world_light_direction;
 
-	alignas(16) glm::mat4 model;
-	glm::mat4 model_normal;
-
 	int32_t gbuffer_debug;
+};
+
+struct ObjectUniformBufferObject {
+	glm::mat4 model;
+	glm::mat4 model_normal;
 };
 
 class ProjectSkyHigh {
@@ -113,9 +118,10 @@ public:
 		  camera_descriptor_layout(device, camera_binds),
 		  shading_descriptor_layout(device, shading_binds),
 		  skybox_descriptor_layout(device, skybox_binds),
+		  object_descriptor_layout(device, object_binds),
 		  sky_cubemap(physical_device, device, 512, 512, Format::RGBA8Srgb, false),
 		  camera(WIDTH, HEIGHT, glm::radians(FOV)), model(1.0f) {
-		camera.set_position({0, 0, -8});
+		camera.set_position({0, 0, -5});
 	}
 
 	~ProjectSkyHigh() {
@@ -143,15 +149,20 @@ private:
 
 	UniquePtr<VertexBuffer> vertex_buffer;
 	UniquePtr<IndexBuffer> index_buffer;
+	UniquePtr<VertexBuffer> terrain_vertex_buffer;
+	UniquePtr<IndexBuffer> terrain_index_buffer;
 	std::vector<UniformBuffer> uniform_buffers;
+	std::vector<UniformBuffer> object_uniform_buffers;
 
 	DescriptorPool descriptor_pool;
 	DescriptorLayout camera_descriptor_layout;
 	DescriptorLayout shading_descriptor_layout;
 	DescriptorLayout skybox_descriptor_layout;
+	DescriptorLayout object_descriptor_layout;
 	std::vector<DescriptorSet> camera_descriptor_sets;
 	std::vector<DescriptorSet> shading_descriptor_sets;
 	std::vector<DescriptorSet> skybox_descriptor_sets;
+	std::vector<DescriptorSet> object_descriptor_sets;
 
 	UniquePtr<Pipeline> gbuffer_pipeline;
 	UniquePtr<Pipeline> shading_pipeline;
@@ -189,6 +200,20 @@ private:
 		},
 	};
 
+	constexpr static std::array object_binds = {
+		DescriptorLayoutBinding {
+			.location = 0,
+			.stage = DescriptorLayoutBinding::Stage::VertexFragment,
+			.type = DescriptorLayoutBinding::Type::UniformbBuffer,
+		},
+		DescriptorLayoutBinding {
+			.location = 1,
+			.count = 1,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
+	};
+
 	UniquePtr<InFlightSet<DepthImage>> depth_image;
 	UniquePtr<InFlightSet<Image>> gbuffer_albedo;
 	UniquePtr<InFlightSet<Image>> gbuffer_normal;
@@ -201,6 +226,7 @@ private:
 	vk::raii::Sampler sampler = nullptr;
 
 	ImageViewPair<CubeMapImage> sky_cubemap;
+	UniquePtr<ImageViewPair<Image>> terrain_texture;
 
 	uint32_t current_frame = 0;
 
@@ -210,6 +236,7 @@ private:
 	Mouse mouse_input;
 
 	Cube model;
+	UniquePtr<primitives::HeightmapTerrain> terrain;
 
 	bool is_imgui_visible = false;
 
@@ -258,27 +285,18 @@ private:
 		create_skybox_pipeline();
 
 		create_texture_sampler();
+
+		allocate_descriptor_sets();
+		create_descriptor_sets();
+		create_command_buffers();
+
+		create_cubemap();
+
+		load_heightmap();
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
-		camera_descriptor_sets = device.allocate_descriptor_sets(
-			descriptor_pool,
-			camera_descriptor_layout,
-			MAX_FRAMES_IN_FLIGHT
-		);
-		shading_descriptor_sets = device.allocate_descriptor_sets(
-			descriptor_pool,
-			shading_descriptor_layout,
-			MAX_FRAMES_IN_FLIGHT
-		);
-		skybox_descriptor_sets = device.allocate_descriptor_sets(
-			descriptor_pool,
-			skybox_descriptor_layout,
-			MAX_FRAMES_IN_FLIGHT
-		);
-		create_descriptor_sets();
-		create_command_buffers();
-		create_cubemap();
+		update_ubo_descriptor_sets();
 	}
 
 	void init_imgui() {
@@ -311,6 +329,8 @@ private:
 	}
 
 	void main_loop() {
+		debug_log("Starting main loop");
+
 		auto last_time = std::chrono::high_resolution_clock().now();
 		uint32_t frames = 0;
 		double timer = 0;
@@ -404,7 +424,7 @@ private:
 	}
 
 	void create_graphics_pipeline() {
-		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		auto shader_code_result = read_shader_file("shaders/gbuffer.spv");
 		if (!shader_code_result) {
 			throw std::runtime_error(shader_code_result.error());
 		}
@@ -430,6 +450,11 @@ private:
 			.format = Format::Float3,
 			.offset = offsetof(BasicVertex, normal),
 		});
+		vertex_descriptor.add_attributes({
+			.location = 3,
+			.format = Format::Float2,
+			.offset = offsetof(BasicVertex, uv),
+		});
 
 		gbuffer_attachment_layout.add_attachment(
 			AttachmentLayout::Type::Depth,
@@ -449,6 +474,7 @@ private:
 			shader_module,
 			std::initializer_list {
 				&camera_descriptor_layout,
+				&object_descriptor_layout,
 			},
 			vertex_descriptor,
 			gbuffer_attachment_layout,
@@ -460,7 +486,7 @@ private:
 	}
 
 	void create_shading_pipeline() {
-		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		auto shader_code_result = read_shader_file("shaders/shading.spv");
 		if (!shader_code_result) {
 			throw std::runtime_error(shader_code_result.error());
 		}
@@ -468,7 +494,7 @@ private:
 
 		Shader shader_module(device, shader_code);
 		shader_module.add_vertex_stage("screen_vert");
-		shader_module.add_fragment_stage("screen_frag");
+		shader_module.add_fragment_stage("shading_frag");
 
 		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, 0);
 
@@ -494,7 +520,7 @@ private:
 	}
 
 	void create_skybox_pipeline() {
-		auto shader_code_result = read_shader_file("shaders/slang.spv");
+		auto shader_code_result = read_shader_file("shaders/skybox.spv");
 		if (!shader_code_result) {
 			throw std::runtime_error(shader_code_result.error());
 		}
@@ -590,6 +616,15 @@ private:
 
 		vertex_buffer = std::make_unique<VertexBuffer>(device, buffer_size);
 		copy_buffer(staging_buffer.get_buffer(), vertex_buffer->get_buffer(), buffer_size);
+
+		buffer_size = sizeof(terrain->get_vertices()[0]) * terrain->get_vertices().size();
+		staging_buffer = StagingBuffer(device, buffer_size);
+		staging_buffer.map();
+		staging_buffer.upload_data(terrain->get_vertices().data());
+		staging_buffer.unmap();
+
+		terrain_vertex_buffer = std::make_unique<VertexBuffer>(device, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), terrain_vertex_buffer->get_buffer(), buffer_size);
 	}
 
 	void create_index_buffer() {
@@ -602,29 +637,110 @@ private:
 
 		index_buffer = std::make_unique<IndexBuffer>(device, buffer_size);
 		copy_buffer(staging_buffer.get_buffer(), index_buffer->get_buffer(), buffer_size);
+
+		buffer_size = sizeof(terrain->get_indices()[0]) * terrain->get_indices().size();
+		staging_buffer = StagingBuffer(device, buffer_size);
+		staging_buffer.map();
+		staging_buffer.upload_data(terrain->get_indices().data());
+		staging_buffer.unmap();
+
+		terrain_index_buffer = std::make_unique<IndexBuffer>(device, buffer_size);
+		copy_buffer(staging_buffer.get_buffer(), terrain_index_buffer->get_buffer(), buffer_size);
 	}
 
 	void create_uniform_buffers() {
 		uniform_buffers.clear();
+		object_uniform_buffers.clear();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-			uint32_t buffer_size = sizeof(UniformBufferObject);
-			UniformBuffer ubo(device, buffer_size);
+			UniformBuffer ubo(device, sizeof(CameraUniformBufferObject));
 			ubo.map();
-
 			uniform_buffers.emplace_back(std::move(ubo));
+
+			UniformBuffer object_ubo(device, sizeof(ObjectUniformBufferObject));
+			object_ubo.map();
+			object_uniform_buffers.emplace_back(std::move(object_ubo));
 		}
 	}
 
-	void create_descriptor_sets() {
+	void allocate_descriptor_sets() {
+		camera_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			camera_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+		object_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			object_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+		shading_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			shading_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+		skybox_descriptor_sets = device.allocate_descriptor_sets(
+			descriptor_pool,
+			skybox_descriptor_layout,
+			MAX_FRAMES_IN_FLIGHT
+		);
+	}
+
+	void update_ubo_descriptor_sets() {
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			std::array buffer_info {
 				vk::DescriptorBufferInfo {
 					.buffer = uniform_buffers[i].get_buffer(),
 					.offset = 0,
-					.range = sizeof(UniformBufferObject),
+					.range = sizeof(CameraUniformBufferObject),
 				},
 			};
+			std::array object_buffer_info {
+				vk::DescriptorBufferInfo {
+					.buffer = object_uniform_buffers[i].get_buffer(),
+					.offset = 0,
+					.range = sizeof(ObjectUniformBufferObject),
+				},
+			};
+			std::array object_texture_info {
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = terrain_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+			};
+			std::array descriptor_writes {
+				vk::WriteDescriptorSet {
+					.dstSet = camera_descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = vk::DescriptorType::eUniformBuffer,
+					.pBufferInfo = buffer_info.data(),
+				},
+				vk::WriteDescriptorSet {
+					.dstSet = object_descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = vk::DescriptorType::eUniformBuffer,
+					.pBufferInfo = object_buffer_info.data(),
+				},
+				vk::WriteDescriptorSet {
+					.dstSet = object_descriptor_sets[i].get_descriptor_set(),
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
+					.pImageInfo = object_texture_info.data(),
+				},
+			};
+			device.get_device().updateDescriptorSets(descriptor_writes, {});
+		}
+	}
+
+	void create_descriptor_sets() {
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			std::array image_info {
 				vk::DescriptorImageInfo {
 					.sampler = sampler,
@@ -655,14 +771,6 @@ private:
 				},
 			};
 			std::array descriptor_writes {
-				vk::WriteDescriptorSet {
-					.dstSet = camera_descriptor_sets[i].get_descriptor_set(),
-					.dstBinding = 0,
-					.dstArrayElement = 0,
-					.descriptorCount = 1,
-					.descriptorType = vk::DescriptorType::eUniformBuffer,
-					.pBufferInfo = buffer_info.data(),
-				},
 				vk::WriteDescriptorSet {
 					.dstSet = shading_descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 0,
@@ -704,6 +812,7 @@ private:
 		depth_image->get_image(current_frame).as_depth_target(command_buffer);
 		gbuffer_albedo->get_image(current_frame).as_color_target(command_buffer);
 		gbuffer_normal->get_image(current_frame).as_color_target(command_buffer);
+		terrain_texture->get_image().as_sampled(command_buffer);
 
 		std::span color_attachments = gbuffer_attachment_layout.get_color_infos({
 			{AttachmentLayout::Type::Color0, &gbuffer_albedo->get_image_view(current_frame)},
@@ -731,20 +840,27 @@ private:
 			gbuffer_pipeline->get_pipeline()
 		);
 
-		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
-		command_buffer.get_command_buffer()
-			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
-
 		command_buffer.get_command_buffer().bindDescriptorSets(
 			vk::PipelineBindPoint::eGraphics,
 			gbuffer_pipeline->get_layout(),
 			0,
-			*camera_descriptor_sets[current_frame].get_descriptor_set(),
+			{
+				*camera_descriptor_sets[current_frame].get_descriptor_set(),
+				*object_descriptor_sets[current_frame].get_descriptor_set(),
+			},
 			nullptr
 		);
 
+		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
 		command_buffer.get_command_buffer()
-			.drawIndexed(model.get_indices().size(), 11 * 11 * 11, 0, 0, 0);
+			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+		command_buffer.get_command_buffer().drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+
+		command_buffer.get_command_buffer()
+			.bindVertexBuffers(0, *terrain_vertex_buffer->get_buffer(), {0});
+		command_buffer.get_command_buffer()
+			.bindIndexBuffer(*terrain_index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+		command_buffer.get_command_buffer().drawIndexed(terrain->get_indices().size(), 1, 0, 0, 0);
 
 		command_buffer.get_command_buffer().endRendering();
 	}
@@ -954,7 +1070,7 @@ private:
 		glm::mat4 projection_view = camera.get_projection() * camera.get_view();
 		glm::vec2 half_yfov_tan = camera.get_half_fov_tan();
 
-		UniformBufferObject ubo {
+		CameraUniformBufferObject ubo {
 			.projection_view = projection_view,
 			.inverse_projection_view = glm::inverse(projection_view),
 
@@ -967,6 +1083,12 @@ private:
 
 			.world_light_direction = world_light_direction,
 
+			.gbuffer_debug = gbuffer_debug,
+		};
+
+		uniform_buffers[current_image].upload_data(&ubo);
+
+		ObjectUniformBufferObject object_ubo {
 			.model = glm::rotate(
 				glm::rotate(
 					glm::rotate(
@@ -981,12 +1103,9 @@ private:
 				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
 			.model_normal = glm::identity<glm::mat4>(),
-			.gbuffer_debug = gbuffer_debug,
 		};
-
-		ubo.model_normal = glm::transpose(glm::inverse(ubo.model));
-
-		uniform_buffers[current_image].upload_data(&ubo);
+		object_ubo.model_normal = glm::transpose(glm::inverse(object_ubo.model));
+		object_uniform_buffers[current_frame].upload_data(&object_ubo);
 	}
 
 	void recreate_swapchain() {
@@ -1010,12 +1129,20 @@ private:
 
 	void create_cubemap() {
 		std::array<ImageData, 6> skybox;
-		skybox[0].load_from_file("textures/skybox/px.png");
-		skybox[1].load_from_file("textures/skybox/nx.png");
-		skybox[2].load_from_file("textures/skybox/py.png");
-		skybox[3].load_from_file("textures/skybox/ny.png");
-		skybox[4].load_from_file("textures/skybox/pz.png");
-		skybox[5].load_from_file("textures/skybox/nz.png");
+		std::array filenames = {
+			"textures/skybox/px.png",
+			"textures/skybox/nx.png",
+			"textures/skybox/py.png",
+			"textures/skybox/ny.png",
+			"textures/skybox/pz.png",
+			"textures/skybox/nz.png",
+		};
+		for (size_t i = 0; i < 6; ++i) {
+			auto result = skybox[i].load_from_file(filenames[i]);
+			if (!result) {
+				throw std::runtime_error(result.error());
+			}
+		}
 
 		StagingBuffer stage(device, skybox[0].get_size() * 6);
 		stage.map();
@@ -1030,6 +1157,8 @@ private:
 
 		CommandBuffer cmd = device.allocate_command_buffer();
 		cmd.begin_onetime();
+
+		sky_cubemap.get_image().as_transfer_dst(cmd);
 
 		vk::BufferImageCopy2 region {
 			.bufferOffset = 0,
@@ -1053,6 +1182,75 @@ private:
 		cmd.get_command_buffer().copyBufferToImage2({
 			.srcBuffer = stage.get_buffer(),
 			.dstImage = sky_cubemap.get_image().get_image(),
+			.dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
+			.regionCount = 1,
+			.pRegions = &region,
+		});
+
+		cmd.end();
+		device.submit_graphics_onetime(cmd);
+	}
+
+	void load_heightmap() {
+		ImageData image_data;
+		auto result = image_data.load_heightmap_from_file("textures/heightmap.png");
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+
+		Heightmap heightmap(
+			image_data.get_width(),
+			std::span {static_cast<const float *>(image_data.get_data()), image_data.get_size()}
+		);
+
+		terrain = std::make_unique<primitives::HeightmapTerrain>(200, 200, 128, 128, 10, heightmap);
+
+		result = image_data.load_from_file("textures/terrain_albedo.png");
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+		terrain_texture = std::make_unique<ImageViewPair<Image>>(
+			physical_device,
+			device,
+			image_data.get_width(),
+			image_data.get_height(),
+			Format::RGBA8Srgb,
+			Image::Usage::Texture,
+			false
+		);
+
+		StagingBuffer stage(device, image_data.get_size());
+		stage.map();
+		stage.upload_data(image_data.get_data());
+		stage.unmap();
+
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
+
+		terrain_texture->get_image().as_transfer_dst(cmd);
+
+		vk::BufferImageCopy2 region {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource =
+				{
+					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {
+				.width = static_cast<uint32_t>(image_data.get_width()),
+				.height = static_cast<uint32_t>(image_data.get_height()),
+				.depth = 1,
+			},
+		};
+
+		cmd.get_command_buffer().copyBufferToImage2({
+			.srcBuffer = stage.get_buffer(),
+			.dstImage = terrain_texture->get_image().get_image(),
 			.dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
 			.regionCount = 1,
 			.pRegions = &region,

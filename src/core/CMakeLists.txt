@@ -1,6 +1,7 @@
 add_library(
 	${PROJECT_NAME}-core
 	SHARED
+	heightmap.cpp
 )
 
 target_link_libraries(

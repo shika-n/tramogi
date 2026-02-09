@@ -48,6 +48,7 @@ public:
 	Image &operator=(Image &&);
 
 	void as_color_target(const CommandBuffer &cmd) const;
+	void as_transfer_dst(const CommandBuffer &cmd) const;
 	void as_sampled(const CommandBuffer &cmd) const;
 
 	const vk::raii::Image &get_image() const;

@@ -31,17 +31,14 @@ target_link_libraries(
 )
 
 function (add_slang_shader_target TARGET)
-	cmake_parse_arguments("SHADER" "" "" "SOURCES" ${ARGN})
-	set(SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
+	cmake_parse_arguments(PARSE_ARGV 0 "SHADER" "" "OUTPUT" "SOURCES;ENTRY_POINTS")
 	set(SHADERS_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/shaders)
-	set(SHADER_SOURCES ${SHADERS_DIR}/shader.slang)
-	set(ENTRY_POINTS
-		-entry vert_main
-		-entry frag_main
-		-entry screen_vert
-		-entry screen_frag
-		-entry skybox_frag
-	)
+
+	message(STATUS "Shader target!")
+	message(STATUS "OUTPUT: ${SHADER_OUTPUT}")
+	message(STATUS "SOURCES: ${SHADER_SOURCES}")
+	message(STATUS "ENTRY_POINTS: ${SHADER_ENTRY_POINTS}")
+
 	add_custom_command(
 		OUTPUT ${SHADERS_DIR}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR}
@@ -56,20 +53,51 @@ function (add_slang_shader_target TARGET)
 	endif()
 
 	add_custom_command(
-		OUTPUT ${SHADERS_OUTPUT_DIR}/slang.spv
+		OUTPUT ${SHADERS_OUTPUT_DIR}/${SHADER_OUTPUT}
 		COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES}
 			-target spirv
 			-profile spirv_1_4
 			-emit-spirv-directly
-			-fvk-use-entrypoint-name ${ENTRY_POINTS}
-			-o ${SHADERS_OUTPUT_DIR}/slang.spv
+			-fvk-use-entrypoint-name ${SHADER_ENTRY_POINTS}
+			-o ${SHADERS_OUTPUT_DIR}/${SHADER_OUTPUT}
 		WORKING_DIRECTORY ${SHADERS_DIR}
 		DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
 		COMMENT "Compiling Slang shaders"
 		VERBATIM
 	)
-	add_custom_target(${TARGET} DEPENDS ${SHADERS_OUTPUT_DIR}/slang.spv)
+	add_custom_target(${TARGET} DEPENDS ${SHADERS_OUTPUT_DIR}/${SHADER_OUTPUT})
 endfunction()
 
-add_slang_shader_target(slang SOURCES ${SHADER_SLANG_SOURCES})
-add_dependencies(${PROJECT_NAME} slang)
+set(SHADERS_DIR ${CMAKE_CURRENT_LIST_DIR}/shaders)
+add_slang_shader_target(slang-gbuffer
+	OUTPUT
+		gbuffer.spv
+	SOURCES
+		${SHADERS_DIR}/gbuffer.slang
+	ENTRY_POINTS
+		-entry vert_main
+		-entry frag_main
+)
+add_slang_shader_target(slang-shading
+	OUTPUT
+		shading.spv
+	SOURCES
+		${SHADERS_DIR}/shading.slang
+	ENTRY_POINTS
+		-entry screen_vert
+		-entry shading_frag
+)
+add_slang_shader_target(slang-skybox
+	OUTPUT
+		skybox.spv
+	SOURCES
+		${SHADERS_DIR}/skybox.slang
+	ENTRY_POINTS
+		-entry screen_vert
+		-entry skybox_frag
+)
+add_dependencies(${PROJECT_NAME}
+	slang-gbuffer
+	slang-shading
+	slang-skybox
+)

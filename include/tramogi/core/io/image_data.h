@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tramogi/core/types.h"
 #include <cstdint>
 
 namespace tramogi::core {
@@ -11,7 +12,8 @@ public:
 	void operator=(const ImageData &) = delete;
 	~ImageData();
 
-	bool load_from_file(const char *filepath);
+	Result<> load_from_file(const char *filepath);
+	Result<> load_heightmap_from_file(const char *filepath);
 
 	uint32_t get_mip_levels() const;
 	uint32_t get_size() const;
@@ -34,6 +36,8 @@ private:
 	int width = 0;
 	int height = 0;
 	int channels = 0;
+
+	void cleanup();
 };
 
 } // namespace tramogi::core

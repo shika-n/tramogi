@@ -54,7 +54,7 @@ private:
 
 	glm::vec3 position;
 	glm::quat orientation = glm::identity<glm::quat>();
-	float orbit_distance = 8.0f;
+	float orbit_distance = 5.0f;
 
 	glm::mat4 projection;
 	glm::mat4 view;
