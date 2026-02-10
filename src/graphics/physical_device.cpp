@@ -33,6 +33,7 @@ const std::vector<const char *> PhysicalDevice::required_device_extensions {
 	vk::KHRSpirv14ExtensionName,
 	vk::KHRSynchronization2ExtensionName,
 	vk::KHRCreateRenderpass2ExtensionName,
+	vk::KHRMaintenance6ExtensionName,
 };
 
 DeviceSuitableness get_device_suitableness(
