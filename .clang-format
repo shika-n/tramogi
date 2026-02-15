@@ -13,8 +13,6 @@ ColumnLimit: 100
 IndentWidth: 4
 InsertBraces: true
 InsertNewlineAtEOF: true
-KeepEmptyLines:
-  AtEndOfFile: true
 PenaltyBreakAssignment: 100
 PenaltyReturnTypeOnItsOwnLine: 10000
 QualifierAlignment: Left
