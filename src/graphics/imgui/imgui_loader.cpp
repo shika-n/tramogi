@@ -61,12 +61,12 @@ void next_frame() {
 		ImGui::DockBuilderSplitNode(
 			left_split_id,
 			ImGuiDir_Up,
-			0.2f,
+			0.8f,
 			&top_left_split_id,
 			&bottom_left_split_id
 		);
-		ImGui::DockBuilderDockWindow("Camera", top_left_split_id);
-		ImGui::DockBuilderDockWindow("Properties", bottom_left_split_id);
+		ImGui::DockBuilderDockWindow("Properties", top_left_split_id);
+		ImGui::DockBuilderDockWindow("Objects", bottom_left_split_id);
 	}
 
 	ImGui::DockSpaceOverViewport(dockspace_id, viewport, ImGuiDockNodeFlags_PassthruCentralNode);

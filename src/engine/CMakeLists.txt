@@ -2,6 +2,7 @@ add_library(
 	${PROJECT_NAME}-engine
 	SHARED
 		camera.cpp
+		ortho_camera.cpp
 
 		primitives/cube.cpp
 		primitives/heightmap_terrain.cpp

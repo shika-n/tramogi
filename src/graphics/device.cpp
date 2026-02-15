@@ -6,6 +6,7 @@
 #include "instance.h"
 #include "physical_device.h"
 #include "swapchain.h"
+#include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
 #include <cstdint>
 #include <limits>
@@ -188,8 +189,10 @@ void Device::wait_idle(uint32_t frame_index) const {
 									   *impl->fences[frame_index],
 									   vk::True,
 									   std::numeric_limits<uint64_t>().max()
-								   ))
-		;
+								   )) {
+
+		core::logging::debug_log("Spin waiting...");
+	}
 }
 
 void Device::wait_graphics_queue() const {

@@ -14,6 +14,8 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/trigonometric.hpp>
 
+namespace tramogi::engine {
+
 Camera::Camera(uint32_t width, uint32_t height, float fov)
 	: fov(fov), aspect(static_cast<float>(width) / height) {
 	change_perspective(width, height, fov);
@@ -24,7 +26,7 @@ void Camera::change_perspective(uint32_t width, uint32_t height, float fov) {
 	this->fov = fov;
 	this->aspect = static_cast<float>(width) / height;
 	z_near = 0.1f;
-	z_far = 100.0f;
+	z_far = 300.0f;
 	projection = glm::perspective(
 		fov,
 		static_cast<float>(width) / static_cast<float>(height),
@@ -38,6 +40,11 @@ void Camera::update_view() {
 	view = glm::translate(glm::mat4_cast(glm::conjugate(orientation)), -position);
 }
 
+void Camera::recalculate_position() {
+	glm::vec3 forward = glm::normalize(orientation * glm::vec3(0, 0, 1));
+	position = forward * -orbit_distance + point_of_interest;
+}
+
 void Camera::rotate_to_poi(float angle_x, float angle_y) {
 	bool is_flipped = std::signbit((orientation * glm::vec3(0, 1, 0)).y);
 	if (is_flipped) {
@@ -48,8 +55,7 @@ void Camera::rotate_to_poi(float angle_x, float angle_y) {
 	glm::qua y_rot = glm::angleAxis(angle_y, glm::vec3(0, 1, 0));
 	orientation = y_rot * x_rot * orientation;
 
-	glm::vec3 forward = glm::normalize(orientation * glm::vec3(0, 0, 1));
-	position = forward * -orbit_distance;
+	recalculate_position();
 }
 
 glm::vec3 Camera::get_forward() const {
@@ -77,3 +83,5 @@ void Camera::set_orbit_distance(float distance) {
 	orbit_distance = std::max(distance, 0.0f);
 	rotate_to_poi(0, 0);
 }
+
+} // namespace tramogi::engine

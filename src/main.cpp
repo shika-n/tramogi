@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <expected>
@@ -76,6 +77,7 @@
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
 constexpr float FOV = 90;
+constexpr float SHADOW_RESOLUTION = 4096;
 
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -91,6 +93,12 @@ using tramogi::engine::primitives::BasicVertex;
 using tramogi::engine::primitives::Cube;
 using tramogi::graphics::primitives::HeightmapTerrain;
 
+constexpr uint16_t UBO_DEBUG_OPTIONS_GBUFFER_BIT = 0x7;
+constexpr uint16_t UBO_DEBUG_OPTIONS_FOG_BIT = 1 << 3;
+constexpr uint16_t UBO_DEBUG_OPTIONS_SPECULAR_BIT = 1 << 4;
+constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_BIT = 0x7 << 5;
+constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_DITHER_BIT = 0x1 << 8;
+constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT = 0x1 << 9;
 struct CameraUniformBufferObject {
 	glm::mat4 projection_view;
 	glm::mat4 inverse_projection_view;
@@ -103,15 +111,41 @@ struct CameraUniformBufferObject {
 	float z_far;
 
 	alignas(16) glm::vec3 world_light_direction;
+	alignas(16) glm::mat4 shadow_projection_view;
 
-	int32_t gbuffer_debug;
-	uint8_t debug_options;
+	// 3 bits - GBuffer
+	//   0: Shaded
+	//   1: Albedo
+	//   2: Normal
+	//   3: Depth
+	//   4: Position
+	// 1 bit  - Specular
+	// 1 bit  - Fog
+	// 3 bits - Shadow
+	//   0: Poisson + Hardware PCF (x16)
+	//   1: Poisson PCF (x16)
+	//   2: Hardware PCF (x16)
+	//   3: Poisson PCF (x8)
+	//   4: Hardware PCF (x4)
+	//   5: No PCF (x1)
+	//   6: No shadow
+	// 1 bit - Dither
+	// 1 bit - Random Poisson
+	uint16_t debug_options;
 };
 
+struct ObjectTransformMatrices {
+	glm::mat4 transform;
+	glm::mat4 normal;
+};
 struct ObjectUniformBufferObject {
-	glm::mat4 model;
-	glm::mat4 model_normal;
+	ObjectTransformMatrices transform_matrices[2];
 };
+
+// struct PushConstantData {
+// 	uint32_t model_id;
+// 	uint32_t texture_id;
+// };
 
 class ProjectSkyHigh {
 public:
@@ -125,8 +159,9 @@ public:
 		  skybox_descriptor_layout(device, skybox_binds),
 		  object_descriptor_layout(device, object_binds),
 		  sky_cubemap(physical_device, device, 512, 512, Format::RGBA8Srgb, false),
-		  camera(WIDTH, HEIGHT, glm::radians(FOV)), model(1.0f) {
+		  camera(WIDTH, HEIGHT, glm::radians(FOV)), shadow_camera(200, 200, 0, 1000), model(1.0f) {
 		camera.set_position({0, 0, -5});
+		shadow_camera.set_position({0, 2, 0});
 	}
 
 	~ProjectSkyHigh() {
@@ -170,6 +205,7 @@ private:
 	std::vector<DescriptorSet> object_descriptor_sets;
 
 	UniquePtr<Pipeline> gbuffer_pipeline;
+	UniquePtr<Pipeline> shadow_pipeline;
 	UniquePtr<Pipeline> shading_pipeline;
 	UniquePtr<Pipeline> skybox_pipeline;
 
@@ -184,7 +220,7 @@ private:
 	constexpr static std::array shading_binds = {
 		DescriptorLayoutBinding {
 			.location = 0,
-			.count = 3,
+			.count = 5,
 			.stage = DescriptorLayoutBinding::Stage::Fragment,
 			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
@@ -223,12 +259,15 @@ private:
 	UniquePtr<InFlightSet<Image>> gbuffer_albedo;
 	UniquePtr<InFlightSet<Image>> gbuffer_normal;
 	UniquePtr<InFlightSet<Image>> offscreen_framebuffer;
+	UniquePtr<InFlightSet<DepthImage>> shadow_depth_image;
 
 	AttachmentLayout gbuffer_attachment_layout;
 	AttachmentLayout shading_attachment_layout;
 	AttachmentLayout skybox_attachment_layout;
+	AttachmentLayout shadow_attachment_layout;
 
 	vk::raii::Sampler sampler = nullptr;
+	vk::raii::Sampler depth_sampler = nullptr;
 
 	ImageViewPair<CubeMapImage> sky_cubemap;
 	UniquePtr<ImageViewPair<Image>> terrain_texture;
@@ -236,6 +275,7 @@ private:
 	uint32_t current_frame = 0;
 
 	Camera camera;
+	OrthoCamera shadow_camera;
 
 	Keyboard key_input;
 	Mouse mouse_input;
@@ -245,11 +285,10 @@ private:
 
 	bool is_imgui_visible = false;
 
-	glm::vec3 world_light_direction = glm::vec3(0.3, -0.6, 0.5);
+	glm::vec2 directional_light_angles = glm::vec2(30.0f, 60.0f);
 
-	int32_t gbuffer_debug = 0;
-	uint8_t debug_options = 0;
-	bool show_skybox = true;
+	uint16_t debug_options = 0;
+	bool skybox_enabled = true;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -283,12 +322,29 @@ private:
 			.compareOp = vk::CompareOp::eAlways,
 		};
 		sampler = vk::raii::Sampler(device.get_device(), sampler_info);
+		vk::SamplerCreateInfo depth_sampler_info {
+			.magFilter = vk::Filter::eLinear,
+			.minFilter = vk::Filter::eLinear,
+			.mipmapMode = vk::SamplerMipmapMode::eLinear,
+			.addressModeU = vk::SamplerAddressMode::eRepeat,
+			.addressModeV = vk::SamplerAddressMode::eRepeat,
+			.addressModeW = vk::SamplerAddressMode::eRepeat,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = vk::True,
+			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+			.compareEnable = vk::True,
+			.compareOp = vk::CompareOp::eLess,
+		};
+		depth_sampler = vk::raii::Sampler(device.get_device(), depth_sampler_info);
 	}
 	void init_vulkan() {
 		create_image_resources();
+		create_shadow_depth_image();
+
 		create_graphics_pipeline();
 		create_shading_pipeline();
 		create_skybox_pipeline();
+		create_shadow_pipeline();
 
 		create_texture_sampler();
 
@@ -299,6 +355,9 @@ private:
 		create_cubemap();
 
 		load_heightmap();
+
+		load_obj_model();
+
 		create_vertex_buffer();
 		create_index_buffer();
 		create_uniform_buffers();
@@ -332,6 +391,88 @@ private:
 		imgui_info.PipelineInfoMain.PipelineRenderingCreateInfo = dynamic_render_info;
 
 		tramogi::graphics::imgui::init(window, &imgui_info);
+	}
+
+	void prepare_imgui_components() {
+		ImGui::Begin("Properties");
+		ImGui::Text(
+			"Position %.3f %.3f %.3f",
+			camera.get_position().x,
+			camera.get_position().y,
+			camera.get_position().z
+		);
+		ImGui::Text("Mouse %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
+
+		ImGui::Text(
+			"Light %.3f %.3f %.3f",
+			shadow_camera.get_forward().x,
+			shadow_camera.get_forward().y,
+			shadow_camera.get_forward().z
+		);
+
+		if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::DragFloat(
+				"Yaw",
+				&directional_light_angles.y,
+				0.25f,
+				0,
+				360,
+				"%0.01f",
+				ImGuiSliderFlags_WrapAround
+			);
+			ImGui::DragFloat("Pitch", &directional_light_angles.x, 0.25f, -90, 90, "%0.01f");
+		}
+
+		static int32_t gbuffer_debug = 0;
+		if (ImGui::CollapsingHeader("Geometry Buffer", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::RadioButton("Shaded", &gbuffer_debug, 0);
+			ImGui::SameLine();
+			ImGui::RadioButton("Albedo", &gbuffer_debug, 1);
+			ImGui::RadioButton("Normal", &gbuffer_debug, 2);
+			ImGui::SameLine();
+			ImGui::RadioButton("Depth", &gbuffer_debug, 3);
+			ImGui::RadioButton("Position", &gbuffer_debug, 4);
+		}
+
+		static int32_t selected_shadow_type = 0;
+		static bool random_poisson = false;
+		static bool dither = false;
+		if (ImGui::CollapsingHeader("Shadow")) {
+			ImGui::RadioButton("1. Poisson + hardware PCF (x16)", &selected_shadow_type, 0);
+			ImGui::RadioButton("2. Poisson PCF (x16)", &selected_shadow_type, 1);
+			ImGui::RadioButton("1. Hardware PCF (x16)", &selected_shadow_type, 2);
+			ImGui::RadioButton("3. Poisson PCF (x8)", &selected_shadow_type, 3);
+			ImGui::RadioButton("4. Hardware PCF (x4)", &selected_shadow_type, 4);
+			ImGui::RadioButton("5. No PCF (x1)", &selected_shadow_type, 5);
+			ImGui::RadioButton("6. No shadow", &selected_shadow_type, 6);
+
+			ImGui::Separator();
+			ImGui::Checkbox("Dither", &dither);
+			ImGui::Checkbox("Random poisson disk", &random_poisson);
+		}
+
+		static bool specular_enabled = true;
+		static bool fog_enabled = true;
+		if (ImGui::CollapsingHeader("Misc.")) {
+			ImGui::Checkbox("Fog", &fog_enabled);
+			ImGui::Checkbox("Skybox", &skybox_enabled);
+			ImGui::Checkbox("Specular", &specular_enabled);
+		}
+
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_GBUFFER_BIT)) |
+						(gbuffer_debug & UBO_DEBUG_OPTIONS_GBUFFER_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_FOG_BIT)) |
+						(!fog_enabled * UBO_DEBUG_OPTIONS_FOG_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_SPECULAR_BIT)) |
+						(!specular_enabled * UBO_DEBUG_OPTIONS_SPECULAR_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_SHADOW_BIT)) |
+						(((selected_shadow_type & 0x7) << 5) & UBO_DEBUG_OPTIONS_SHADOW_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_SHADOW_DITHER_BIT)) |
+						(dither * UBO_DEBUG_OPTIONS_SHADOW_DITHER_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT)) |
+						(random_poisson * UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT);
+
+		ImGui::End();
 	}
 
 	void main_loop() {
@@ -372,10 +513,19 @@ private:
 								  mouse_input.is_pressed(MouseButton::Right));
 			if (drag_rotating) {
 				if (!drag_first_frame) {
-					camera.rotate_to_poi(
-						glm::radians(1.0f * (mouse_input.get_y() - last_pos.y)),
-						glm::radians(1.0f * (mouse_input.get_x() - last_pos.x))
-					);
+					float delta_x = mouse_input.get_x() - last_pos.x;
+					float delta_y = mouse_input.get_y() - last_pos.y;
+					if (key_input.is_pressed(Key::Shift)) {
+						camera.set_point_of_interest(
+							camera.get_point_of_interest() +
+							(camera.get_up() * delta_y + camera.get_right() * -delta_x) * 0.2f
+						);
+					} else {
+						camera.rotate_to_poi(
+							glm::radians(1.0f * delta_y),
+							glm::radians(1.0f * delta_x)
+						);
+					}
 				}
 				last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
 			}
@@ -383,43 +533,13 @@ private:
 			drag_first_frame = !drag_rotating;
 
 			camera.update_view();
+			// shadow_camera.set_position(camera.get_position());
+			shadow_camera.set_orientation(
+				glm::quat(glm::vec3(glm::radians(directional_light_angles), 0))
+			);
+			shadow_camera.update_view();
 			if (is_imgui_visible) {
-				ImGui::Begin("Misc");
-				ImGui::Text(
-					"Position %.3f %.3f %.3f",
-					camera.get_position().x,
-					camera.get_position().y,
-					camera.get_position().z
-				);
-				ImGui::Text("Mouse %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
-
-				ImGui::RadioButton("Shaded", &gbuffer_debug, 0);
-				ImGui::SameLine();
-				ImGui::RadioButton("Albedo", &gbuffer_debug, 1);
-				ImGui::RadioButton("Normal", &gbuffer_debug, 2);
-				ImGui::SameLine();
-				ImGui::RadioButton("Depth", &gbuffer_debug, 3);
-				ImGui::RadioButton("Position", &gbuffer_debug, 4);
-
-				ImGui::Checkbox("Skybox", &show_skybox);
-
-				static bool fog_enabled = true;
-				static bool specular_enabled = true;
-				ImGui::Checkbox("Fog", &fog_enabled);
-				ImGui::SameLine();
-				ImGui::Checkbox("Specular", &specular_enabled);
-				if (fog_enabled) {
-					debug_options &= (0xFF ^ 0x1);
-				} else {
-					debug_options |= 0x1;
-				}
-				if (specular_enabled) {
-					debug_options &= (0xFF ^ (0x1 << 1));
-				} else {
-					debug_options |= 0x1 << 1;
-				}
-
-				ImGui::End();
+				prepare_imgui_components();
 			}
 
 			draw_frame(delta);
@@ -500,9 +620,9 @@ private:
 			},
 			vertex_descriptor,
 			gbuffer_attachment_layout,
-			PipelineOption {
-				.is_depth_test = true,
-				.is_depth_write = true,
+			Pipeline::Option {
+				.depth_test = Pipeline::Option::DepthTest::DepthTestAndWrite,
+				.depth_compare = Pipeline::Option::DepthCompare::Less,
 			}
 		);
 	}
@@ -534,9 +654,8 @@ private:
 			},
 			vertex_descriptor,
 			shading_attachment_layout,
-			PipelineOption {
-				.is_depth_test = false,
-				.is_depth_write = false,
+			Pipeline::Option {
+				.depth_test = Pipeline::Option::DepthTest::None,
 			}
 		);
 	}
@@ -580,9 +699,69 @@ private:
 			},
 			vertex_descriptor,
 			skybox_attachment_layout,
-			PipelineOption {
-				.is_depth_test = true,
-				.is_depth_write = false,
+			Pipeline::Option {
+				.depth_test = Pipeline::Option::DepthTest::DepthTestOnly,
+				.depth_compare = Pipeline::Option::DepthCompare::LessOrEqual,
+			}
+		);
+	}
+
+	void create_shadow_pipeline() {
+		auto shader_code_result = read_shader_file("shaders/gbuffer.spv");
+		if (!shader_code_result) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
+
+		Shader shader_module(device, shader_code);
+		shader_module.add_vertex_stage("shadow_vert");
+		shader_module.add_fragment_stage("shadow_frag");
+
+		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, sizeof(BasicVertex));
+		vertex_descriptor.add_attributes({
+			.location = 0,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, position),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 1,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, color),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 2,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, normal),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 3,
+			.format = Format::Float2,
+			.offset = offsetof(BasicVertex, uv),
+		});
+
+		shadow_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Depth,
+			shadow_depth_image->get_image(0).get_format()
+		);
+
+		shadow_pipeline = std::make_unique<Pipeline>(
+			device,
+			shader_module,
+			std::initializer_list {
+				&camera_descriptor_layout,
+				&object_descriptor_layout,
+			},
+			vertex_descriptor,
+			shadow_attachment_layout,
+			Pipeline::Option {
+				.depth_test = Pipeline::Option::DepthTest::DepthTestAndWrite,
+				.depth_compare = Pipeline::Option::DepthCompare::Less,
+				.depth_bias =
+					Pipeline::Option::DepthBias {
+						.bias = 1.5f,
+						.slope = 2.5f,
+					},
+				.cull_mode = Pipeline::Option::CullMode::Back,
 			}
 		);
 	}
@@ -620,6 +799,16 @@ private:
 			swapchain.get_extent().height,
 			Format::RGBA8Srgb,
 			Image::Usage::SampledColorTarget,
+			false
+		);
+	}
+
+	void create_shadow_depth_image() {
+		shadow_depth_image = std::make_unique<InFlightSet<DepthImage>>(
+			physical_device,
+			device,
+			SHADOW_RESOLUTION,
+			SHADOW_RESOLUTION,
 			false
 		);
 	}
@@ -779,6 +968,16 @@ private:
 					.imageView = depth_image->get_image_view(i).get_image_view(),
 					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
+				vk::DescriptorImageInfo {
+					.sampler = depth_sampler,
+					.imageView = shadow_depth_image->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = shadow_depth_image->get_image_view(i).get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
 			};
 			std::array skybox_image_info {
 				vk::DescriptorImageInfo {
@@ -830,6 +1029,30 @@ private:
 		device.submit_graphics_onetime(cmd);
 	}
 
+	void record_draw_objects(const CommandBuffer &command_buffer) {
+		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
+		command_buffer.get_command_buffer()
+			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+
+		uint32_t texture_index = 0;
+		vk::PushConstantsInfo push_contant_info {
+			.layout = gbuffer_pipeline->get_layout(),
+			.stageFlags = vk::ShaderStageFlagBits::eFragment,
+			.size = sizeof(texture_index),
+			.pValues = &texture_index,
+		};
+		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
+		command_buffer.get_command_buffer().drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
+
+		command_buffer.get_command_buffer()
+			.bindVertexBuffers(0, *terrain_vertex_buffer->get_buffer(), {0});
+		command_buffer.get_command_buffer()
+			.bindIndexBuffer(*terrain_index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
+		texture_index = 1;
+		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
+		command_buffer.get_command_buffer().drawIndexed(terrain->get_indices().size(), 1, 0, 0, 0);
+	}
+
 	void record_gbuffer_pass(const CommandBuffer &command_buffer) {
 		depth_image->get_image(current_frame).as_depth_target(command_buffer);
 		gbuffer_albedo->get_image(current_frame).as_color_target(command_buffer);
@@ -873,27 +1096,7 @@ private:
 			nullptr
 		);
 
-		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
-		command_buffer.get_command_buffer()
-			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
-
-		uint32_t texture_index = 0;
-		vk::PushConstantsInfo push_contant_info {
-			.layout = gbuffer_pipeline->get_layout(),
-			.stageFlags = vk::ShaderStageFlagBits::eFragment,
-			.size = sizeof(texture_index),
-			.pValues = &texture_index,
-		};
-		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
-		command_buffer.get_command_buffer().drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
-
-		command_buffer.get_command_buffer()
-			.bindVertexBuffers(0, *terrain_vertex_buffer->get_buffer(), {0});
-		command_buffer.get_command_buffer()
-			.bindIndexBuffer(*terrain_index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
-		texture_index = 1;
-		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
-		command_buffer.get_command_buffer().drawIndexed(terrain->get_indices().size(), 1, 0, 0, 0);
+		record_draw_objects(command_buffer);
 
 		command_buffer.get_command_buffer().endRendering();
 	}
@@ -902,6 +1105,7 @@ private:
 		gbuffer_albedo->get_image(current_frame).as_sampled(command_buffer);
 		gbuffer_normal->get_image(current_frame).as_sampled(command_buffer);
 		depth_image->get_image(current_frame).as_sampled(command_buffer);
+		shadow_depth_image->get_image(current_frame).as_sampled(command_buffer);
 		offscreen_framebuffer->get_image(current_frame).as_color_target(command_buffer);
 
 		std::span screen_pass_attachments = shading_attachment_layout.get_color_infos({
@@ -970,6 +1174,78 @@ private:
 		command_buffer.get_command_buffer().endRendering();
 	}
 
+	void record_shadow_pass(const CommandBuffer &command_buffer) {
+		shadow_depth_image->get_image(current_frame).as_depth_target(command_buffer);
+		command_buffer.get_command_buffer().setViewport(
+			0,
+			vk::Viewport(0.0f, 0.0f, SHADOW_RESOLUTION, SHADOW_RESOLUTION, 0.0f, 1.0f)
+		);
+		command_buffer.get_command_buffer().setScissor(
+			0,
+			vk::Rect2D(
+				vk::Offset2D(0, 0),
+				{
+					static_cast<uint32_t>(SHADOW_RESOLUTION),
+					static_cast<uint32_t>(SHADOW_RESOLUTION),
+				}
+			)
+		);
+
+		vk::RenderingInfo rendering_info {
+			.renderArea =
+				{
+					.offset = {0, 0},
+					.extent =
+						{
+							static_cast<uint32_t>(SHADOW_RESOLUTION),
+							static_cast<uint32_t>(SHADOW_RESOLUTION),
+						},
+				},
+			.layerCount = 1,
+			.pDepthAttachment = &shadow_attachment_layout.get_depth_info(
+				shadow_depth_image->get_image_view(current_frame)
+			),
+		};
+
+		command_buffer.get_command_buffer().beginRendering(rendering_info);
+
+		command_buffer.get_command_buffer().bindPipeline(
+			vk::PipelineBindPoint::eGraphics,
+			shadow_pipeline->get_pipeline()
+		);
+
+		command_buffer.get_command_buffer().bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			shadow_pipeline->get_layout(),
+			0,
+			{
+				*camera_descriptor_sets[current_frame].get_descriptor_set(),
+				*object_descriptor_sets[current_frame].get_descriptor_set(),
+			},
+			nullptr
+		);
+
+		record_draw_objects(command_buffer);
+
+		command_buffer.get_command_buffer().endRendering();
+
+		command_buffer.get_command_buffer().setViewport(
+			0,
+			vk::Viewport(
+				0.0f,
+				0.0f,
+				swapchain.get_extent().width,
+				swapchain.get_extent().height,
+				0.0f,
+				1.0f
+			)
+		);
+		command_buffer.get_command_buffer().setScissor(
+			0,
+			vk::Rect2D(vk::Offset2D(0, 0), swapchain.get_extent())
+		);
+	}
+
 	void record_imgui_pass(const CommandBuffer &command_buffer) {
 		vk::RenderingAttachmentInfo attachment_info {
 			.imageView = offscreen_framebuffer->get_image_view(current_frame).get_image_view(),
@@ -1007,8 +1283,9 @@ private:
 		);
 
 		record_gbuffer_pass(command_buffer);
+		record_shadow_pass(command_buffer);
 		record_shading_pass(command_buffer);
-		if (show_skybox) {
+		if (skybox_enabled) {
 			record_skybox_pass(command_buffer);
 		}
 		record_imgui_pass(command_buffer);
@@ -1093,8 +1370,7 @@ private:
 		static glm::vec3 rot;
 		static glm::vec3 pos_translate;
 		if (is_imgui_visible) {
-			ImGui::Begin("Properties");
-			ImGui::DragFloat3("Light", &world_light_direction.x, 0.1f, 0, 0, "%0.1f");
+			ImGui::Begin("Objects");
 			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f, 0, 0, "%0.1f");
 			ImGui::DragFloat3("Rotation", &rot.x, 0.2f, 0, 360, "%.1f");
 			ImGui::End();
@@ -1102,6 +1378,9 @@ private:
 
 		glm::mat4 projection_view = camera.get_projection() * camera.get_view();
 		glm::vec2 half_yfov_tan = camera.get_half_fov_tan();
+
+		glm::mat4 shadow_projection_view = shadow_camera.get_projection() *
+										   shadow_camera.get_view();
 
 		CameraUniformBufferObject ubo {
 			.projection_view = projection_view,
@@ -1114,19 +1393,22 @@ private:
 			.z_near = camera.get_z_near(),
 			.z_far = camera.get_z_far(),
 
-			.world_light_direction = world_light_direction,
+			.world_light_direction = shadow_camera.get_forward(),
+			.shadow_projection_view = shadow_projection_view,
 
-			.gbuffer_debug = gbuffer_debug,
 			.debug_options = debug_options,
 		};
 
 		uniform_buffers[current_image].upload_data(&ubo);
 
-		ObjectUniformBufferObject object_ubo {
-			.model = glm::rotate(
+		ObjectTransformMatrices model = {
+			.transform = glm::rotate(
 				glm::rotate(
 					glm::rotate(
-						glm::translate(glm::mat4(1.0f), pos_translate),
+						glm::translate(
+							glm::scale(glm::mat4(1.0f), glm::vec3(20, 20, 20)),
+							pos_translate
+						),
 						glm::radians(rot.z),
 						glm::vec3(0.0f, 0.0f, 1.0f)
 					),
@@ -1136,9 +1418,21 @@ private:
 				glm::radians(rot.x),
 				glm::vec3(1.0f, 0.0f, 0.0f)
 			),
-			.model_normal = glm::identity<glm::mat4>(),
+			.normal = glm::identity<glm::mat4>(),
 		};
-		object_ubo.model_normal = glm::transpose(glm::inverse(object_ubo.model));
+		model.normal = glm::transpose(glm::inverse(model.transform));
+		ObjectTransformMatrices terrain = {
+			.transform = glm::identity<glm::mat4>(),
+			.normal = glm::identity<glm::mat4>(),
+		};
+		terrain.normal = glm::transpose(glm::inverse(terrain.transform));
+
+		ObjectUniformBufferObject object_ubo {
+			.transform_matrices = {
+				terrain,
+				model,
+			},
+		};
 		object_uniform_buffers[current_frame].upload_data(&object_ubo);
 	}
 
@@ -1292,6 +1586,10 @@ private:
 
 		cmd.end();
 		device.submit_graphics_onetime(cmd);
+	}
+
+	void load_obj_model() {
+		// bunny.load_from_obj_file("models/bunny.obj");
 	}
 };
 

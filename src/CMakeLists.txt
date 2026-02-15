@@ -77,6 +77,8 @@ add_slang_shader_target(slang-gbuffer
 	ENTRY_POINTS
 		-entry vert_main
 		-entry frag_main
+		-entry shadow_vert
+		-entry shadow_frag
 )
 add_slang_shader_target(slang-shading
 	OUTPUT

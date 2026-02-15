@@ -26,6 +26,8 @@ vk::Format native(Format format) {
 		return vk::Format::eD32SfloatS8Uint;
 	case Format::Depth24Stencil:
 		return vk::Format::eD24UnormS8Uint;
+	case Format::Depth32:
+		return vk::Format::eD32Sfloat;
 	}
 
 	assert(false && "Unknown format. Did you initialize the format?");

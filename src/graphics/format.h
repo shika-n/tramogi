@@ -21,6 +21,7 @@ enum class Format {
 	// Depth
 	Depth32Stencil,
 	Depth24Stencil,
+	Depth32,
 
 	// Aliases
 	Float2 = RG32Float,

@@ -12,9 +12,9 @@ public struct UniformBuffer {
 	public float z_far;
 
 	public float3 world_light_direction;
+	public float4x4 shadow_projection_view;
 
-	public int gbuffer_debug;
-	public uint8_t debug_options;
+	public uint16_t debug_options;
 };
 
 

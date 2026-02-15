@@ -35,12 +35,14 @@ const uint32_t texture_index;
 
 [shader("vertex")]
 VertexOutput vert_main(VertexInput input) {
-	float4 world_position = mul(object_ubo.model, float4(input.position, 1.0));
+	float4 world_position =
+		mul(object_ubo.transform_matrices[0].model, float4(input.position, 1.0));
 
 	VertexOutput output;
 	output.position = mul(ubo.projection_view, world_position);
 	output.color = input.color;
-	output.normal = mul(object_ubo.model_normal, float4(input.normal, 0.0)).xyz;
+	output.normal =
+		mul(object_ubo.transform_matrices[0].normal_matrix, float4(input.normal, 0.0)).xyz;
 	output.uv = input.uv;
 
 	return output;
@@ -59,6 +61,18 @@ FragmentOutput frag_main(VertexOutput vertex_in) {
 	}
 	output.normal = float4(normal, 1.0);
 	return output;
+}
+
+[shader("vertex")]
+float4 shadow_vert(VertexInput input) : SV_Position {
+	float4 world_position =
+		mul(object_ubo.transform_matrices[0].model, float4(input.position, 1.0));
+	return mul(ubo.shadow_projection_view, world_position);
+}
+
+[shader("fragment")]
+float4 shadow_frag() : SV_Target0 {
+	return float4(1.0);
 }
 
 

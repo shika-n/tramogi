@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
@@ -34,19 +35,45 @@ uint32_t native(bool value) {
 	}
 }
 
+vk::CompareOp native(Pipeline::Option::DepthCompare depth_compare) {
+	switch (depth_compare) {
+	case Pipeline::Option::DepthCompare::Less:
+		return vk::CompareOp::eLess;
+	case Pipeline::Option::DepthCompare::LessOrEqual:
+		return vk::CompareOp::eLessOrEqual;
+	}
+	assert(false && "Unknown Pipeline::Option::DepthCompare value");
+	std::unreachable();
+}
+
+vk::CullModeFlags native(Pipeline::Option::CullMode cull_mode) {
+	switch (cull_mode) {
+	case Pipeline::Option::CullMode::None:
+		return vk::CullModeFlagBits::eNone;
+	case Pipeline::Option::CullMode::Back:
+		return vk::CullModeFlagBits::eBack;
+	case Pipeline::Option::CullMode::Front:
+		return vk::CullModeFlagBits::eFront;
+	case Pipeline::Option::CullMode::Both:
+		return vk::CullModeFlagBits::eFrontAndBack;
+	}
+	assert(false && "Unknown Pipeline::Option::CullMode value");
+	std::unreachable();
+}
+
 Pipeline::Pipeline(
 	const Device &device,
 	const Shader &shader,
 	std::initializer_list<DescriptorLayout *> descriptor_layouts,
 	const VertexDescriptor &vertex_descriptor,
 	const AttachmentLayout &attachment_layout,
-	PipelineOption pipeline_option
+	Option pipeline_option
 )
 	: impl(std::make_unique<Impl>()) {
 	assert(
-		attachment_layout.get_depth_format() ||
-		(!pipeline_option.is_depth_test && !pipeline_option.is_depth_write &&
-		 "You need to specify depth format if either depth test or write is enabled")
+		(attachment_layout.get_depth_format() ||
+		 pipeline_option.depth_test == Option::DepthTest::None) &&
+		"You need to specify depth format if either depth test or write is enabled"
 	);
 
 	std::span color_formats = attachment_layout.get_color_formats();
@@ -60,7 +87,7 @@ Pipeline::Pipeline(
 		vk::PushConstantRange {
 			.stageFlags = vk::ShaderStageFlagBits::eFragment,
 			.offset = 0,
-			.size = sizeof(uint32_t),
+			.size = 2 * sizeof(uint32_t),
 		},
 	};
 	vk::PipelineLayoutCreateInfo pipeline_layout_info {
@@ -98,14 +125,25 @@ Pipeline::Pipeline(
 		.viewportCount = 1,
 		.scissorCount = 1,
 	};
+
+	float depth_bias_factor = 0;
+	float depth_bias_slope_factor = 0;
+
+	if (pipeline_option.depth_bias) {
+		depth_bias_factor = pipeline_option.depth_bias->bias;
+		depth_bias_slope_factor = pipeline_option.depth_bias->slope;
+	}
+
 	vk::PipelineRasterizationStateCreateInfo rasterization_state_info {
-		.depthClampEnable = vk::False,
+		.depthClampEnable = vk::True,
 		.rasterizerDiscardEnable = vk::False,
 		.polygonMode = vk::PolygonMode::eFill,
-		.cullMode = vk::CullModeFlagBits::eBack,
+		.cullMode = native(pipeline_option.cull_mode),
 		.frontFace = vk::FrontFace::eCounterClockwise,
-		.depthBiasEnable = vk::False,
-		.depthBiasSlopeFactor = 1,
+		.depthBiasEnable = native(pipeline_option.depth_bias.has_value()),
+		.depthBiasConstantFactor = depth_bias_factor,
+		.depthBiasClamp = 0.0,
+		.depthBiasSlopeFactor = depth_bias_slope_factor,
 		.lineWidth = 1,
 	};
 	vk::PipelineMultisampleStateCreateInfo multisample_info {
@@ -122,8 +160,12 @@ Pipeline::Pipeline(
 	);
 
 	vk::PipelineDepthStencilStateCreateInfo depth_stencil_info {
-		.depthTestEnable = native(pipeline_option.is_depth_test),
-		.depthWriteEnable = native(pipeline_option.is_depth_write),
+		.depthTestEnable = native(
+			pipeline_option.depth_test == Option::DepthTest::DepthTestOnly ||
+			pipeline_option.depth_test == Option::DepthTest::DepthTestAndWrite
+		),
+		.depthWriteEnable =
+			native(pipeline_option.depth_test == Option::DepthTest::DepthTestAndWrite),
 		.depthCompareOp = vk::CompareOp::eLessOrEqual,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False,
