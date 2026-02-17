@@ -43,7 +43,7 @@ void *Buffer::get_mapped_memory() {
 	return impl->mapped_memory;
 }
 
-vk::raii::Buffer &Buffer::get_buffer() {
+const vk::raii::Buffer &Buffer::get_buffer() const {
 	return impl->buffer;
 }
 

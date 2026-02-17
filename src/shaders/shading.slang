@@ -7,6 +7,8 @@ ConstantBuffer<UniformBuffer> ubo;
 
 [[vk_binding(0, 1)]]
 Sampler2D sampler[5];
+[[vk_binding(1, 1)]]
+SamplerCube skybox;
 
 static float3 light_color = float3(1.0, 1.0, 1.0);
 static float shininess = 16.0;
@@ -18,6 +20,7 @@ float linearize_depth(float depth, float z_near, float z_far) {
 float4 blinn_phong(
 	float4 albedo,
 	float3 normal,
+	float metalness,
 	float3 position,
 	float3 light_dir,
 	float shadow_factor
@@ -32,15 +35,25 @@ float4 blinn_phong(
 						  ((shininess + 2) / (8 * 3.14));
 	}
 
-	float3 ambient_color = float3(0.05, 0.05, 0.1) * albedo.xyz;
-	float3 diffuse_color = light_factor * light_color * albedo.xyz;
-	float3 specular_color = specular_factor * float3(1.0, 0.7, 0.6) * float3(1.0);
+	float3 reflect_color =
+		skybox.Sample(reflect(normalize(position.xyz - ubo.camera_position), normal)).xyz;
+	float3 base_color = albedo.xyz * (1.0 - metalness) + reflect_color * metalness;
+
+	float3 ambient_color = float3(0.05, 0.05, 0.1) *
+						   (base_color + (0.5 * min(dot(light_dir, normal), 0.0)));
+	float3 diffuse_color = light_factor * light_color * base_color;
+	float3 specular_color = specular_factor * float3(1.0, 0.7, 0.6);
+	float3 shadow_color = float3(0.05, 0.05, 0.1) * light_factor;
 
 	if ((ubo.debug_options & (1 << 4)) != 0) {
 		specular_color = 0.0;
 	}
 
-	return float4(ambient_color + (diffuse_color + specular_color) * shadow_factor, 1.0);
+	return float4(
+		ambient_color + (diffuse_color + specular_color) * shadow_factor +
+			(shadow_color * (1.0 - shadow_factor)),
+		1.0
+	);
 }
 
 [shader("vertex")]
@@ -183,7 +196,8 @@ float calculate_shadow_factor(
 [shader("fragment")]
 float4 shading_frag(ScreenVertexOutput in) : SV_Target {
 	float4 albedo = sampler[0].Sample(in.screen_uv);
-	float3 normal = normalize(sampler[1].Sample(in.screen_uv).xyz);
+	float4 normal_metal = sampler[1].Sample(in.screen_uv);
+	float3 normal = normalize(normal_metal.xyz);
 	float depth = sampler[2].Sample(in.screen_uv).r;
 	float4 position = mul(ubo.inverse_projection_view, float4(in.ndc, depth, 1.0));
 	position /= position.w;
@@ -212,7 +226,7 @@ float4 shading_frag(ScreenVertexOutput in) : SV_Target {
 
 	uint8_t gbuffer_debug = uint8_t(ubo.debug_options & 0x7);
 	if (gbuffer_debug == 0) {
-		color = blinn_phong(albedo, normal, position.xyz, light_dir, shadow_factor);
+		color = blinn_phong(albedo, normal, normal_metal.w, position.xyz, light_dir, shadow_factor);
 	} else if (gbuffer_debug == 1) {
 		color = albedo;
 	} else if (gbuffer_debug == 2) {

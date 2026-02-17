@@ -1,12 +1,13 @@
 #include "heightmap_terrain.h"
-#include "../../core/heightmap.h"
+#include "tramogi/renderer/primitives/basic_vertex.h"
 #include <cstdint>
 #include <glm/fwd.hpp>
 #include <glm/geometric.hpp>
+#include <vector>
 
-namespace tramogi::graphics::primitives {
+namespace tramogi::renderer::primitives {
 
-HeightmapTerrain::HeightmapTerrain(
+HeightmapTerrainMesh::HeightmapTerrainMesh(
 	float width,
 	float depth,
 	uint32_t width_resolution,
@@ -15,6 +16,8 @@ HeightmapTerrain::HeightmapTerrain(
 	const core::Heightmap &heightmap
 ) {
 	uint32_t tile_count = (width_resolution - 1) * (depth_resolution - 1);
+	std::vector<BasicVertex> vertices;
+	std::vector<uint32_t> indices;
 	vertices.resize(tile_count * 6);
 
 	float tile_w = static_cast<float>(width) / width_resolution;
@@ -55,13 +58,18 @@ HeightmapTerrain::HeightmapTerrain(
 											  sample_step_y
 										  );
 
-			glm::vec2 uv_ul = glm::vec2((tile_x) / width_resolution, (tile_z) / depth_resolution);
+			float uv_multiplier = 20.0f;
+			glm::vec2 uv_ul = glm::vec2((tile_x) / width_resolution, (tile_z) / depth_resolution) *
+							  uv_multiplier;
 			glm::vec2 uv_ur =
-				glm::vec2((tile_x + 1) / width_resolution, (tile_z) / depth_resolution);
+				glm::vec2((tile_x + 1) / width_resolution, (tile_z) / depth_resolution) *
+				uv_multiplier;
 			glm::vec2 uv_bl =
-				glm::vec2((tile_x) / width_resolution, (tile_z + 1) / depth_resolution);
+				glm::vec2((tile_x) / width_resolution, (tile_z + 1) / depth_resolution) *
+				uv_multiplier;
 			glm::vec2 uv_br =
-				glm::vec2((tile_x + 1) / width_resolution, (tile_z + 1) / depth_resolution);
+				glm::vec2((tile_x + 1) / width_resolution, (tile_z + 1) / depth_resolution) *
+				uv_multiplier;
 
 			glm::vec3 normal0 = glm::cross(
 				glm::normalize(glm::vec3(0, height_br - height_ur, -tile_d)),
@@ -137,6 +145,9 @@ HeightmapTerrain::HeightmapTerrain(
 			indices.push_back(tile_i + 5);
 		}
 	}
+
+	set_vertices(std::move(vertices));
+	set_indices(std::move(indices));
 } // namespace tramogi::graphics::primitives
 
-} // namespace tramogi::graphics::primitives
+} // namespace tramogi::renderer::primitives

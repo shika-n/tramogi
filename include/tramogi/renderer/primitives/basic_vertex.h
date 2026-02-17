@@ -3,7 +3,7 @@
 #include <glm/ext/vector_float2.hpp>
 #include <glm/ext/vector_float3.hpp>
 
-namespace tramogi::engine::primitives {
+namespace tramogi::renderer::primitives {
 
 struct BasicVertex {
 	glm::vec3 position;
@@ -12,4 +12,4 @@ struct BasicVertex {
 	glm::vec2 uv;
 };
 
-} // namespace tramogi::engine::primitives
+} // namespace tramogi::renderer::primitives

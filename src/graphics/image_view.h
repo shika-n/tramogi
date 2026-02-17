@@ -67,11 +67,11 @@ public:
 	ImageViewPair(ImageViewPair &&) = default;
 	ImageViewPair &operator=(ImageViewPair &&) = default;
 
-	const T &get_image() const {
+	T &get_image() {
 		return image;
 	}
 
-	const ImageView &get_image_view() const {
+	ImageView &get_image_view() {
 		return image_view;
 	}
 

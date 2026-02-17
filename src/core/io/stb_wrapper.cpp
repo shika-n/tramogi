@@ -1,4 +1,5 @@
 #include "tramogi/core/io/image_data.h"
+#include "tramogi/core/logging/logging.h"
 #include "tramogi/core/types.h"
 #include <cstdint>
 #include <format>
@@ -31,6 +32,7 @@ uint32_t ImageData::get_size() const {
 }
 
 Result<> ImageData::load_from_file(const char *filepath) {
+	logging::debug_log("Loading file {}", filepath);
 	cleanup();
 
 	int width = 0;
@@ -45,10 +47,12 @@ Result<> ImageData::load_from_file(const char *filepath) {
 	this->height = height;
 	this->channels = 4;
 
+	logging::debug_log("Loading file {} done", filepath);
 	return {};
 }
 
 Result<> ImageData::load_heightmap_from_file(const char *filepath) {
+	logging::debug_log("Loading file {}", filepath);
 	cleanup();
 
 	int width = 0;
@@ -63,6 +67,7 @@ Result<> ImageData::load_heightmap_from_file(const char *filepath) {
 	this->height = height;
 	this->channels = 1;
 
+	logging::debug_log("Loading file {} done", filepath);
 	return {};
 }
 

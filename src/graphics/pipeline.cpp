@@ -85,7 +85,7 @@ Pipeline::Pipeline(
 	}
 	std::array pc_range {
 		vk::PushConstantRange {
-			.stageFlags = vk::ShaderStageFlagBits::eFragment,
+			.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
 			.offset = 0,
 			.size = 2 * sizeof(uint32_t),
 		},

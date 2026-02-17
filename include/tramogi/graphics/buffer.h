@@ -25,7 +25,7 @@ public:
 	void map();
 	void unmap();
 	void *get_mapped_memory();
-	vk::raii::Buffer &get_buffer();
+	const vk::raii::Buffer &get_buffer() const;
 
 	Buffer(const Buffer &) = delete;
 	Buffer &operator=(const Buffer &) = delete;

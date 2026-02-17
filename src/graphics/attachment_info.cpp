@@ -67,6 +67,10 @@ void AttachmentLayout::set_load_operation(Type type, LoadOperation operation) {
 	impl->attachment_infos[static_cast<uint8_t>(type)].loadOp = native(operation);
 }
 
+void AttachmentLayout::set_clear_value(Type type, const std::array<uint32_t, 4> &value) {
+	impl->attachment_infos[static_cast<uint8_t>(type)].clearValue = vk::ClearColorValue(value);
+}
+
 std::span<const vk::RenderingAttachmentInfo> AttachmentLayout::get_color_infos(
 	std::initializer_list<std::pair<Type, const ImageView *>> image_views
 ) const {

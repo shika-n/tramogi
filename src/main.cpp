@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -9,8 +11,12 @@
 #include <expected>
 #include <format>
 #include <functional>
+#include <glm/ext/quaternion_transform.hpp>
+#include <glm/ext/quaternion_trigonometric.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <print>
 #include <stdexcept>
@@ -43,8 +49,6 @@
 
 #include "core/heightmap.h"
 #include "engine/camera.h"
-#include "engine/primitives/cube.h"
-#include "engine/primitives/heightmap_terrain.h"
 #include "graphics/allocator.h"
 #include "graphics/attachment_info.h"
 #include "graphics/command_buffer.h"
@@ -63,6 +67,8 @@
 #include "graphics/surface.h"
 #include "graphics/swapchain.h"
 #include "graphics/vertex_descriptor.h"
+#include "renderer/primitives/cube.h"
+#include "renderer/primitives/heightmap_terrain.h"
 #include "tramogi/core/io/file.h"
 #include "tramogi/core/io/image_data.h"
 #include "tramogi/core/logging/logging.h"
@@ -73,6 +79,9 @@
 #include "tramogi/input/keyboard.h"
 #include "tramogi/input/mouse.h"
 #include "tramogi/platform/window.h"
+#include "tramogi/renderer/mesh.h"
+#include "tramogi/renderer/model.h"
+#include "tramogi/renderer/primitives/basic_vertex.h"
 
 constexpr uint32_t WIDTH = 1280;
 constexpr uint32_t HEIGHT = 720;
@@ -89,9 +98,11 @@ using namespace tramogi::platform;
 
 using namespace tramogi::core::logging;
 
-using tramogi::engine::primitives::BasicVertex;
-using tramogi::engine::primitives::Cube;
-using tramogi::graphics::primitives::HeightmapTerrain;
+using tramogi::renderer::Mesh;
+using tramogi::renderer::Model;
+using tramogi::renderer::primitives::BasicVertex;
+using tramogi::renderer::primitives::CubeMesh;
+using tramogi::renderer::primitives::HeightmapTerrainMesh;
 
 constexpr uint16_t UBO_DEBUG_OPTIONS_GBUFFER_BIT = 0x7;
 constexpr uint16_t UBO_DEBUG_OPTIONS_FOG_BIT = 1 << 3;
@@ -137,15 +148,17 @@ struct CameraUniformBufferObject {
 struct ObjectTransformMatrices {
 	glm::mat4 transform;
 	glm::mat4 normal;
+
+	alignas(16) float metalness;
 };
 struct ObjectUniformBufferObject {
-	ObjectTransformMatrices transform_matrices[2];
+	ObjectTransformMatrices transform_matrices[100];
 };
 
-// struct PushConstantData {
-// 	uint32_t model_id;
-// 	uint32_t texture_id;
-// };
+struct PushConstantData {
+	uint32_t model_id;
+	uint32_t texture_id;
+};
 
 class ProjectSkyHigh {
 public:
@@ -159,7 +172,7 @@ public:
 		  skybox_descriptor_layout(device, skybox_binds),
 		  object_descriptor_layout(device, object_binds),
 		  sky_cubemap(physical_device, device, 512, 512, Format::RGBA8Srgb, false),
-		  camera(WIDTH, HEIGHT, glm::radians(FOV)), shadow_camera(200, 200, 0, 1000), model(1.0f) {
+		  camera(WIDTH, HEIGHT, glm::radians(FOV)), shadow_camera(200, 200, 0, 1000) {
 		camera.set_position({0, 0, -5});
 		shadow_camera.set_position({0, 2, 0});
 	}
@@ -187,10 +200,8 @@ private:
 
 	std::vector<CommandBuffer> command_buffers;
 
-	UniquePtr<VertexBuffer> vertex_buffer;
-	UniquePtr<IndexBuffer> index_buffer;
-	UniquePtr<VertexBuffer> terrain_vertex_buffer;
-	UniquePtr<IndexBuffer> terrain_index_buffer;
+	std::vector<UniquePtr<VertexBuffer>> vertex_buffers;
+	std::vector<UniquePtr<IndexBuffer>> index_buffers;
 	std::vector<UniformBuffer> uniform_buffers;
 	std::vector<UniformBuffer> object_uniform_buffers;
 
@@ -221,6 +232,12 @@ private:
 		DescriptorLayoutBinding {
 			.location = 0,
 			.count = 5,
+			.stage = DescriptorLayoutBinding::Stage::Fragment,
+			.type = DescriptorLayoutBinding::Type::CombinedSampler,
+		},
+		DescriptorLayoutBinding {
+			.location = 1,
+			.count = 1,
 			.stage = DescriptorLayoutBinding::Stage::Fragment,
 			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
@@ -260,6 +277,10 @@ private:
 	UniquePtr<InFlightSet<Image>> gbuffer_normal;
 	UniquePtr<InFlightSet<Image>> offscreen_framebuffer;
 	UniquePtr<InFlightSet<DepthImage>> shadow_depth_image;
+	UniquePtr<InFlightSet<Image>> object_id_image;
+
+	UniquePtr<StagingBuffer> position_staging;
+	UniquePtr<StagingBuffer> object_id_staging;
 
 	AttachmentLayout gbuffer_attachment_layout;
 	AttachmentLayout shading_attachment_layout;
@@ -271,6 +292,7 @@ private:
 
 	ImageViewPair<CubeMapImage> sky_cubemap;
 	UniquePtr<ImageViewPair<Image>> terrain_texture;
+	UniquePtr<ImageViewPair<Image>> terrain_normal_texture;
 
 	uint32_t current_frame = 0;
 
@@ -280,10 +302,17 @@ private:
 	Keyboard key_input;
 	Mouse mouse_input;
 
-	Cube model;
-	UniquePtr<HeightmapTerrain> terrain;
+	CubeMesh cube_mesh;
+	UniquePtr<HeightmapTerrainMesh> terrain_mesh;
+	Mesh bunny_mesh;
+	Mesh dragon_mesh;
+	Mesh lucy_mesh;
 
-	bool is_imgui_visible = false;
+	std::vector<Model> models;
+
+	uint32_t current_picked_id = 0;
+
+	bool is_imgui_visible = true;
 
 	glm::vec2 directional_light_angles = glm::vec2(30.0f, 60.0f);
 
@@ -320,6 +349,8 @@ private:
 			.maxAnisotropy = properties.limits.maxSamplerAnisotropy,
 			.compareEnable = vk::False,
 			.compareOp = vk::CompareOp::eAlways,
+			.minLod = 0.0f,
+			.maxLod = vk::LodClampNone,
 		};
 		sampler = vk::raii::Sampler(device.get_device(), sampler_info);
 		vk::SamplerCreateInfo depth_sampler_info {
@@ -362,6 +393,8 @@ private:
 		create_index_buffer();
 		create_uniform_buffers();
 		update_ubo_descriptor_sets();
+
+		create_models();
 	}
 
 	void init_imgui() {
@@ -420,7 +453,7 @@ private:
 				"%0.01f",
 				ImGuiSliderFlags_WrapAround
 			);
-			ImGui::DragFloat("Pitch", &directional_light_angles.x, 0.25f, -90, 90, "%0.01f");
+			ImGui::DragFloat("Pitch", &directional_light_angles.x, 0.05f, -90, 90, "%0.01f");
 		}
 
 		static int32_t gbuffer_debug = 0;
@@ -459,6 +492,38 @@ private:
 			ImGui::Checkbox("Specular", &specular_enabled);
 		}
 
+		if (ImGui::CollapsingHeader("Scene")) {
+			std::array mesh_names = {
+				"Cube",
+				"Stanford Bunny",
+				"Stanford Dragon",
+				"Stanford Lucy",
+			};
+
+			std::array mesh_ptrs = {
+				static_cast<Mesh *>(&cube_mesh),
+				&bunny_mesh,
+				&dragon_mesh,
+				&lucy_mesh,
+			};
+			static int32_t selected_mesh_index = 0;
+			if (ImGui::BeginCombo("Mesh", mesh_names[selected_mesh_index])) {
+				for (size_t i = 0; i < mesh_names.size(); ++i) {
+					if (ImGui::Selectable(mesh_names[i], false)) {
+						selected_mesh_index = i;
+					}
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::Button("Add Object")) {
+				Model model(models.size(), mesh_ptrs[selected_mesh_index]);
+				model.set_name(
+					std::format("Object {} - {}", model.get_id(), mesh_names[selected_mesh_index])
+				);
+				models.emplace_back(std::move(model));
+			}
+		}
+
 		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_GBUFFER_BIT)) |
 						(gbuffer_debug & UBO_DEBUG_OPTIONS_GBUFFER_BIT);
 		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_FOG_BIT)) |
@@ -473,6 +538,70 @@ private:
 						(random_poisson * UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT);
 
 		ImGui::End();
+
+		ImGui::Begin("Objects");
+		if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
+			for (auto &model : models) {
+				ImGuiTreeNodeFlags selected_flag = ImGuiTreeNodeFlags_None;
+				if (model.get_id() == current_picked_id) {
+					selected_flag |= ImGuiTreeNodeFlags_Selected;
+				}
+				ImGui::TreeNodeEx(model.get_name().data(), ImGuiTreeNodeFlags_Leaf | selected_flag);
+				if (ImGui::IsItemClicked()) {
+					current_picked_id = model.get_id();
+				}
+				ImGui::TreePop();
+			}
+			ImGui::TreePop();
+		}
+		ImGui::End();
+
+		ImGui::Begin("Object Property");
+		for (auto &model : models) {
+			if (current_picked_id != std::numeric_limits<uint32_t>::max() &&
+				model.get_id() == current_picked_id) {
+				ImGui::Text("Selected: [%i] %s", model.get_id(), model.get_name().data());
+
+				static char name[33] = "\0";
+				memset(name, '\0', 33);
+				model.get_name().copy(name, 32);
+				ImGui::InputText("Name", name, 32);
+				model.set_name(name);
+
+				static glm::vec3 position;
+				position = model.get_position();
+				ImGui::DragFloat3("Position", &position.x, 0.1f);
+				model.set_position(position);
+
+				static glm::vec3 scale;
+				scale = model.get_scale();
+				ImGui::DragFloat3("Scale", &scale.x, 0.1f);
+				model.set_scale(scale);
+
+				static glm::vec3 rotation;
+				rotation = glm::degrees(glm::eulerAngles(model.get_orientation()));
+				ImGui::DragFloat3("Rotation", &rotation.x, 0.1f);
+				model.set_orientation(glm::quat(glm::radians(rotation)));
+
+				static float metalness;
+				metalness = model.get_metalness();
+				ImGui::SliderFloat("Metalness", &metalness, 0.0, 1.0);
+				model.set_metalness(metalness);
+
+				if (ImGui::Button("Set as Camera POI")) {
+					camera.set_point_of_interest(model.get_position());
+				}
+				if (ImGui::Button("Delete")) {
+					auto result = std::ranges::find_if(models, [&model](auto &value) -> bool {
+						return &model == &value;
+					});
+					if (result != models.cend()) {
+						models.erase(result);
+					}
+				}
+			}
+		}
+		ImGui::End();
 	}
 
 	void main_loop() {
@@ -485,6 +614,8 @@ private:
 
 		glm::vec2 last_pos;
 		bool drag_first_frame = true;
+
+		double time = 0.0;
 
 		while (!window.should_close()) {
 			auto now = std::chrono::high_resolution_clock().now();
@@ -508,29 +639,65 @@ private:
 				window.request_close();
 			}
 
-			bool drag_rotating = mouse_input.is_pressed(MouseButton::Middle) ||
-								 (key_input.is_pressed(Key::Control) &&
-								  mouse_input.is_pressed(MouseButton::Right));
-			if (drag_rotating) {
-				if (!drag_first_frame) {
-					float delta_x = mouse_input.get_x() - last_pos.x;
-					float delta_y = mouse_input.get_y() - last_pos.y;
-					if (key_input.is_pressed(Key::Shift)) {
-						camera.set_point_of_interest(
-							camera.get_point_of_interest() +
-							(camera.get_up() * delta_y + camera.get_right() * -delta_x) * 0.2f
-						);
-					} else {
-						camera.rotate_to_poi(
-							glm::radians(1.0f * delta_y),
-							glm::radians(1.0f * delta_x)
-						);
-					}
-				}
-				last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
-			}
+			copy_object_image();
 
-			drag_first_frame = !drag_rotating;
+			// TODO: Fix with better code
+			// Start pressing inside imgui and releasing just a bit over the border will count
+			// as a click
+			if (!ImGui::IsWindowHovered(
+					ImGuiHoveredFlags_AnyWindow | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem
+				)) {
+				static float pressed_x = -1;
+				static float pressed_y = -1;
+
+				bool drag_rotating = mouse_input.is_pressed(MouseButton::Middle) ||
+									 (key_input.is_pressed(Key::Control) &&
+									  mouse_input.is_pressed(MouseButton::Right));
+				if (drag_rotating) {
+					if (!drag_first_frame) {
+						float delta_x = mouse_input.get_x() - last_pos.x;
+						float delta_y = mouse_input.get_y() - last_pos.y;
+						if (key_input.is_pressed(Key::Shift)) {
+							camera.set_point_of_interest(
+								camera.get_point_of_interest() +
+								(camera.get_up() * delta_y + camera.get_right() * -delta_x) * 0.2f
+							);
+						} else {
+							camera.rotate_to_poi(
+								glm::radians(1.0f * delta_y),
+								glm::radians(1.0f * delta_x)
+							);
+						}
+					}
+					last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
+				}
+
+				if (mouse_input.is_pressed(MouseButton::Left) && pressed_x < 0.0f &&
+					pressed_y < 0.0f) {
+					pressed_x = mouse_input.get_x();
+					pressed_y = mouse_input.get_y();
+				} else if (!mouse_input.is_pressed(MouseButton::Left)) {
+					if (pressed_x > 0.0f && pressed_y > 0.0f &&
+						std::abs(mouse_input.get_x() - pressed_x) < 16 &&
+						std::abs(mouse_input.get_y() - pressed_y) < 16) {
+						uint32_t pixel_pos = static_cast<uint32_t>(
+							mouse_input.get_x() + mouse_input.get_y() * swapchain.get_extent().width
+						);
+						if (pixel_pos <
+							swapchain.get_extent().width * swapchain.get_extent().height) {
+							uint32_t object_id = *(
+								static_cast<uint32_t *>(object_id_staging->get_mapped_memory()) +
+								pixel_pos
+							);
+							current_picked_id = object_id;
+						}
+					}
+					pressed_x = -1;
+					pressed_y = -1;
+				}
+
+				drag_first_frame = !drag_rotating;
+			}
 
 			camera.update_view();
 			// shadow_camera.set_position(camera.get_position());
@@ -538,6 +705,17 @@ private:
 				glm::quat(glm::vec3(glm::radians(directional_light_angles), 0))
 			);
 			shadow_camera.update_view();
+
+			for (auto &model : models) {
+				if (model.get_mesh() == &bunny_mesh) {
+					model.set_position({
+						model.get_position().x,
+						model.get_position().y + std::sin((time + model.get_id()) * 5.0f) * 0.1f,
+						model.get_position().z,
+					});
+				}
+			}
+
 			if (is_imgui_visible) {
 				prepare_imgui_components();
 			}
@@ -545,6 +723,7 @@ private:
 			draw_frame(delta);
 
 			++frames;
+			time += delta;
 			timer += delta;
 
 			while (timer >= 1) {
@@ -609,6 +788,14 @@ private:
 		gbuffer_attachment_layout.add_attachment(
 			AttachmentLayout::Type::Color1,
 			gbuffer_normal->get_image(0).get_format()
+		);
+		gbuffer_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color2,
+			object_id_image->get_image(0).get_format()
+		);
+		gbuffer_attachment_layout.set_clear_value(
+			AttachmentLayout::Type::Color2,
+			{std::numeric_limits<uint32_t>::max()}
 		);
 
 		gbuffer_pipeline = std::make_unique<Pipeline>(
@@ -801,6 +988,21 @@ private:
 			Image::Usage::SampledColorTarget,
 			false
 		);
+		object_id_image = std::make_unique<InFlightSet<Image>>(
+			physical_device,
+			device,
+			swapchain.get_extent().width,
+			swapchain.get_extent().height,
+			Format::R32UInt,
+			Image::Usage::SampledColorTarget,
+			false
+		);
+
+		object_id_staging = std::make_unique<StagingBuffer>(
+			device,
+			swapchain.get_extent().width * swapchain.get_extent().height * sizeof(uint32_t)
+		);
+		object_id_staging->map();
 	}
 
 	void create_shadow_depth_image() {
@@ -818,45 +1020,55 @@ private:
 	}
 
 	void create_vertex_buffer() {
-		auto buffer_size = sizeof(model.get_vertices()[0]) * model.get_vertices().size();
+		std::array<Mesh *, 5> meshes = {
+			static_cast<Mesh *>(terrain_mesh.get()),
+			&cube_mesh,
+			&bunny_mesh,
+			&dragon_mesh,
+			&lucy_mesh,
+		};
 
-		StagingBuffer staging_buffer(device, buffer_size);
-		staging_buffer.map();
-		staging_buffer.upload_data(model.get_vertices().data());
-		staging_buffer.unmap();
+		for (Mesh *mesh : meshes) {
+			auto buffer_size = sizeof(mesh->get_vertices()[0]) * mesh->get_vertices().size();
 
-		vertex_buffer = std::make_unique<VertexBuffer>(device, buffer_size);
-		copy_buffer(staging_buffer.get_buffer(), vertex_buffer->get_buffer(), buffer_size);
+			StagingBuffer staging_buffer(device, buffer_size);
+			staging_buffer.map();
+			staging_buffer.upload_data(mesh->get_vertices().data());
+			staging_buffer.unmap();
 
-		buffer_size = sizeof(terrain->get_vertices()[0]) * terrain->get_vertices().size();
-		staging_buffer = StagingBuffer(device, buffer_size);
-		staging_buffer.map();
-		staging_buffer.upload_data(terrain->get_vertices().data());
-		staging_buffer.unmap();
+			VertexBuffer *vertex_buffer =
+				vertex_buffers.emplace_back(std::make_unique<VertexBuffer>(device, buffer_size))
+					.get();
+			copy_buffer(staging_buffer.get_buffer(), vertex_buffer->get_buffer(), buffer_size);
 
-		terrain_vertex_buffer = std::make_unique<VertexBuffer>(device, buffer_size);
-		copy_buffer(staging_buffer.get_buffer(), terrain_vertex_buffer->get_buffer(), buffer_size);
+			mesh->set_vertex_buffer(vertex_buffer);
+		}
 	}
 
 	void create_index_buffer() {
-		auto buffer_size = sizeof(model.get_indices()[0]) * model.get_indices().size();
+		std::array<Mesh *, 5> meshes = {
+			static_cast<Mesh *>(terrain_mesh.get()),
+			&cube_mesh,
+			&bunny_mesh,
+			&dragon_mesh,
+			&lucy_mesh
+		};
 
-		StagingBuffer staging_buffer(device, buffer_size);
-		staging_buffer.map();
-		staging_buffer.upload_data(model.get_indices().data());
-		staging_buffer.unmap();
+		for (Mesh *mesh : meshes) {
+			auto buffer_size = sizeof(mesh->get_indices()[0]) * mesh->get_indices().size();
 
-		index_buffer = std::make_unique<IndexBuffer>(device, buffer_size);
-		copy_buffer(staging_buffer.get_buffer(), index_buffer->get_buffer(), buffer_size);
+			StagingBuffer staging_buffer(device, buffer_size);
+			staging_buffer.map();
+			staging_buffer.upload_data(mesh->get_indices().data());
+			staging_buffer.unmap();
 
-		buffer_size = sizeof(terrain->get_indices()[0]) * terrain->get_indices().size();
-		staging_buffer = StagingBuffer(device, buffer_size);
-		staging_buffer.map();
-		staging_buffer.upload_data(terrain->get_indices().data());
-		staging_buffer.unmap();
+			IndexBuffer *index_buffer =
+				index_buffers.emplace_back(std::make_unique<IndexBuffer>(device, buffer_size))
+					.get();
+			copy_buffer(staging_buffer.get_buffer(), index_buffer->get_buffer(), buffer_size);
 
-		terrain_index_buffer = std::make_unique<IndexBuffer>(device, buffer_size);
-		copy_buffer(staging_buffer.get_buffer(), terrain_index_buffer->get_buffer(), buffer_size);
+			mesh->set_index_buffer(index_buffer);
+		}
 	}
 
 	void create_uniform_buffers() {
@@ -978,6 +1190,11 @@ private:
 					.imageView = shadow_depth_image->get_image_view(i).get_image_view(),
 					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = sky_cubemap.get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
 			};
 			std::array skybox_image_info {
 				vk::DescriptorImageInfo {
@@ -1013,7 +1230,11 @@ private:
 		}
 	}
 
-	void copy_buffer(vk::raii::Buffer &src, vk::raii::Buffer &dst, vk::DeviceSize size) {
+	void copy_buffer(
+		const vk::raii::Buffer &src,
+		const vk::raii::Buffer &dst,
+		vk::DeviceSize size
+	) {
 		CommandBuffer cmd = device.allocate_command_buffer();
 		cmd.begin_onetime();
 		cmd.get_command_buffer().copyBuffer(
@@ -1030,38 +1251,53 @@ private:
 	}
 
 	void record_draw_objects(const CommandBuffer &command_buffer) {
-		command_buffer.get_command_buffer().bindVertexBuffers(0, *vertex_buffer->get_buffer(), {0});
-		command_buffer.get_command_buffer()
-			.bindIndexBuffer(*index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
-
-		uint32_t texture_index = 0;
+		PushConstantData push_constant_data;
 		vk::PushConstantsInfo push_contant_info {
 			.layout = gbuffer_pipeline->get_layout(),
-			.stageFlags = vk::ShaderStageFlagBits::eFragment,
-			.size = sizeof(texture_index),
-			.pValues = &texture_index,
+			.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+			.size = sizeof(PushConstantData),
+			.pValues = &push_constant_data,
 		};
-		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
-		command_buffer.get_command_buffer().drawIndexed(model.get_indices().size(), 1, 0, 0, 0);
 
-		command_buffer.get_command_buffer()
-			.bindVertexBuffers(0, *terrain_vertex_buffer->get_buffer(), {0});
-		command_buffer.get_command_buffer()
-			.bindIndexBuffer(*terrain_index_buffer->get_buffer(), 0, vk::IndexType::eUint32);
-		texture_index = 1;
-		command_buffer.get_command_buffer().pushConstants2(push_contant_info);
-		command_buffer.get_command_buffer().drawIndexed(terrain->get_indices().size(), 1, 0, 0, 0);
+		for (size_t i = 0; i < models.size(); ++i) {
+			const auto &model = models[i];
+			if (model.get_mesh() == nullptr) {
+				continue;
+			}
+
+			push_constant_data.model_id = model.get_id();
+
+			if (model.get_mesh() == terrain_mesh.get()) { // Terrain
+				push_constant_data.texture_id = 1;
+			} else {
+				push_constant_data.texture_id = 0;
+			}
+
+			command_buffer.get_command_buffer()
+				.bindVertexBuffers(0, *model.get_mesh()->get_vertex_buffer()->get_buffer(), {0});
+			command_buffer.get_command_buffer().bindIndexBuffer(
+				*model.get_mesh()->get_index_buffer()->get_buffer(),
+				0,
+				vk::IndexType::eUint32
+			);
+
+			command_buffer.get_command_buffer().pushConstants2(push_contant_info);
+			command_buffer.get_command_buffer()
+				.drawIndexed(model.get_mesh()->get_indices().size(), 1, 0, 0, 0);
+		}
 	}
 
 	void record_gbuffer_pass(const CommandBuffer &command_buffer) {
 		depth_image->get_image(current_frame).as_depth_target(command_buffer);
 		gbuffer_albedo->get_image(current_frame).as_color_target(command_buffer);
 		gbuffer_normal->get_image(current_frame).as_color_target(command_buffer);
+		object_id_image->get_image(current_frame).as_color_target(command_buffer);
 		terrain_texture->get_image().as_sampled(command_buffer);
 
 		std::span color_attachments = gbuffer_attachment_layout.get_color_infos({
 			{AttachmentLayout::Type::Color0, &gbuffer_albedo->get_image_view(current_frame)},
 			{AttachmentLayout::Type::Color1, &gbuffer_normal->get_image_view(current_frame)},
+			{AttachmentLayout::Type::Color2, &object_id_image->get_image_view(current_frame)},
 		});
 
 		vk::RenderingInfo rendering_info {
@@ -1106,6 +1342,7 @@ private:
 		gbuffer_normal->get_image(current_frame).as_sampled(command_buffer);
 		depth_image->get_image(current_frame).as_sampled(command_buffer);
 		shadow_depth_image->get_image(current_frame).as_sampled(command_buffer);
+		sky_cubemap.get_image().as_sampled(command_buffer);
 		offscreen_framebuffer->get_image(current_frame).as_color_target(command_buffer);
 
 		std::span screen_pass_attachments = shading_attachment_layout.get_color_infos({
@@ -1349,11 +1586,11 @@ private:
 			return;
 		}
 
+		device.reset_fence(current_frame);
 		command_buffers[current_frame].get_command_buffer().reset();
 
 		update_uniform_buffer(current_frame, delta);
 		record_command_buffer(image_index.value());
-		device.reset_fence(current_frame);
 
 		device.submit_graphics(command_buffers[current_frame], current_frame);
 
@@ -1367,15 +1604,6 @@ private:
 	}
 
 	void update_uniform_buffer(uint32_t current_image, [[maybe_unused]] double delta) {
-		static glm::vec3 rot;
-		static glm::vec3 pos_translate;
-		if (is_imgui_visible) {
-			ImGui::Begin("Objects");
-			ImGui::DragFloat3("Position", &pos_translate.x, 0.1f, 0, 0, "%0.1f");
-			ImGui::DragFloat3("Rotation", &rot.x, 0.2f, 0, 360, "%.1f");
-			ImGui::End();
-		}
-
 		glm::mat4 projection_view = camera.get_projection() * camera.get_view();
 		glm::vec2 half_yfov_tan = camera.get_half_fov_tan();
 
@@ -1401,38 +1629,17 @@ private:
 
 		uniform_buffers[current_image].upload_data(&ubo);
 
-		ObjectTransformMatrices model = {
-			.transform = glm::rotate(
-				glm::rotate(
-					glm::rotate(
-						glm::translate(
-							glm::scale(glm::mat4(1.0f), glm::vec3(20, 20, 20)),
-							pos_translate
-						),
-						glm::radians(rot.z),
-						glm::vec3(0.0f, 0.0f, 1.0f)
-					),
-					glm::radians(rot.y),
-					glm::vec3(0.0f, 1.0f, 0.0f)
-				),
-				glm::radians(rot.x),
-				glm::vec3(1.0f, 0.0f, 0.0f)
-			),
-			.normal = glm::identity<glm::mat4>(),
-		};
-		model.normal = glm::transpose(glm::inverse(model.transform));
-		ObjectTransformMatrices terrain = {
-			.transform = glm::identity<glm::mat4>(),
-			.normal = glm::identity<glm::mat4>(),
-		};
-		terrain.normal = glm::transpose(glm::inverse(terrain.transform));
+		ObjectUniformBufferObject object_ubo {};
+		for (size_t i = 0; i < models.size(); ++i) {
+			auto &model = models[i];
+			glm::mat4 transform_matrix = model.get_transform_matrix();
+			object_ubo.transform_matrices[model.get_id()] = {
+				.transform = transform_matrix,
+				.normal = glm::transpose(glm::inverse(transform_matrix)),
+				.metalness = model.get_metalness(),
+			};
+		}
 
-		ObjectUniformBufferObject object_ubo {
-			.transform_matrices = {
-				terrain,
-				model,
-			},
-		};
 		object_uniform_buffers[current_frame].upload_data(&object_ubo);
 	}
 
@@ -1531,9 +1738,9 @@ private:
 			std::span {static_cast<const float *>(image_data.get_data()), image_data.get_size()}
 		);
 
-		terrain = std::make_unique<HeightmapTerrain>(200, 200, 128, 128, 10, heightmap);
+		terrain_mesh = std::make_unique<HeightmapTerrainMesh>(200, 200, 128, 128, 10, heightmap);
 
-		result = image_data.load_from_file("textures/terrain_albedo.png");
+		result = image_data.load_from_file("textures/ground/forrest_ground_01_diff_4k.png");
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
@@ -1544,7 +1751,7 @@ private:
 			image_data.get_height(),
 			Format::RGBA8Srgb,
 			Image::Usage::Texture,
-			false
+			true
 		);
 
 		StagingBuffer stage(device, image_data.get_size());
@@ -1584,12 +1791,83 @@ private:
 			.pRegions = &region,
 		});
 
+		terrain_texture->get_image().generate_mipmap(cmd);
+
 		cmd.end();
 		device.submit_graphics_onetime(cmd);
 	}
 
 	void load_obj_model() {
-		// bunny.load_from_obj_file("models/bunny.obj");
+		bunny_mesh.load_from_obj_file("models/bunny.obj");
+		dragon_mesh.load_from_obj_file("models/dragon.obj");
+		lucy_mesh.load_from_obj_file("models/lucy-centered.obj");
+	}
+
+	void create_models() {
+		assert(terrain_mesh.get() != nullptr);
+		uint32_t id = 0;
+		Model terrain(id++, static_cast<Mesh *>(terrain_mesh.get()));
+		Model cube(id++, static_cast<Mesh *>(&cube_mesh));
+		Model bunny(id++, static_cast<Mesh *>(&bunny_mesh));
+		Model dragon(id++, static_cast<Mesh *>(&dragon_mesh));
+		Model lucy(id++, static_cast<Mesh *>(&lucy_mesh));
+
+		terrain.set_name("Terrain");
+		cube.set_name("Cube");
+		cube.set_position({0, 1, 0});
+		bunny.set_name("Stanford Bunny");
+		bunny.set_position({0, 1.5, 3});
+		bunny.set_scale(glm::vec3(20));
+		dragon.set_name("Stanford Dragon");
+		dragon.set_position({10, 0, 0});
+		dragon.set_scale(glm::vec3(0.5));
+		lucy.set_name("Stanford Lucy");
+		lucy.set_position({-10, 0, 0});
+		lucy.set_scale(glm::vec3(20));
+
+		models.push_back(terrain);
+		models.push_back(cube);
+		models.push_back(bunny);
+		models.push_back(dragon);
+		models.push_back(lucy);
+		debug_log("All models pushed");
+	}
+
+	void copy_object_image() {
+		CommandBuffer cmd = device.allocate_command_buffer();
+		cmd.begin_onetime();
+
+		object_id_image->get_image(current_frame).as_transfer_src(cmd);
+
+		vk::BufferImageCopy2 region {
+			.bufferOffset = 0,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
+			.imageSubresource =
+				{
+					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			.imageOffset = {0, 0, 0},
+			.imageExtent = {
+				.width = static_cast<uint32_t>(swapchain.get_extent().width),
+				.height = static_cast<uint32_t>(swapchain.get_extent().height),
+				.depth = 1,
+			},
+		};
+
+		cmd.get_command_buffer().copyImageToBuffer2({
+			.srcImage = object_id_image->get_image(current_frame).get_image(),
+			.srcImageLayout = vk::ImageLayout::eTransferSrcOptimal,
+			.dstBuffer = object_id_staging->get_buffer(),
+			.regionCount = 1,
+			.pRegions = &region,
+		});
+
+		cmd.end();
+		device.submit_graphics_onetime(cmd);
 	}
 };
 

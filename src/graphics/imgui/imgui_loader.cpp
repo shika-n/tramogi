@@ -47,26 +47,38 @@ void next_frame() {
 		ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
 
 		ImGuiID left_split_id;
-		ImGuiID right_split_id;
+		ImGuiID center_split_id;
 		ImGui::DockBuilderSplitNode(
 			dockspace_id,
 			ImGuiDir_Left,
 			0.2f,
 			&left_split_id,
-			&right_split_id
+			&center_split_id
 		);
 
-		ImGuiID top_left_split_id;
-		ImGuiID bottom_left_split_id;
+		ImGuiID right_split_id;
+		ImGuiID center2_split_id;
 		ImGui::DockBuilderSplitNode(
-			left_split_id,
-			ImGuiDir_Up,
-			0.8f,
-			&top_left_split_id,
-			&bottom_left_split_id
+			dockspace_id,
+			ImGuiDir_Right,
+			0.2f,
+			&right_split_id,
+			&center2_split_id
 		);
-		ImGui::DockBuilderDockWindow("Properties", top_left_split_id);
-		ImGui::DockBuilderDockWindow("Objects", bottom_left_split_id);
+
+		ImGuiID upper_right_split_id;
+		ImGuiID bottom_right_split_id;
+		ImGui::DockBuilderSplitNode(
+			right_split_id,
+			ImGuiDir_Up,
+			0.4f,
+			&upper_right_split_id,
+			&bottom_right_split_id
+		);
+
+		ImGui::DockBuilderDockWindow("Properties", left_split_id);
+		ImGui::DockBuilderDockWindow("Objects", upper_right_split_id);
+		ImGui::DockBuilderDockWindow("Object Property", bottom_right_split_id);
 	}
 
 	ImGui::DockSpaceOverViewport(dockspace_id, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
@@ -88,4 +100,3 @@ void cleanup() {
 }
 
 } // namespace tramogi::graphics::imgui
-

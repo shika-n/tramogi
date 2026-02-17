@@ -12,6 +12,8 @@ vk::Format native(Format format) {
 		return vk::Format::eR32G32B32Sfloat;
 	case Format::RGBA16Float:
 		return vk::Format::eR16G16B16A16Sfloat;
+	case Format::R32UInt:
+		return vk::Format::eR32Sint;
 
 	case Format::RGB8Srgb:
 		return vk::Format::eR8G8B8Srgb;

@@ -40,6 +40,7 @@ public:
 
 	void add_attachment(Type type, Format format);
 	void set_load_operation(Type type, LoadOperation operation);
+	void set_clear_value(Type type, const std::array<uint32_t, 4> &values);
 
 	bool is_depth_exists() const;
 

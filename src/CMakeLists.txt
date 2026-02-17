@@ -3,6 +3,7 @@ add_subdirectory(engine)
 add_subdirectory(graphics)
 add_subdirectory(input)
 add_subdirectory(platform)
+add_subdirectory(renderer)
 
 add_executable(
 	${PROJECT_NAME}
@@ -28,6 +29,7 @@ target_link_libraries(
 		${PROJECT_NAME}-graphics-imgui
 		${PROJECT_NAME}-input
 		${PROJECT_NAME}-platform
+		${PROJECT_NAME}-renderer
 )
 
 function (add_slang_shader_target TARGET)

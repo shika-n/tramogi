@@ -20,10 +20,10 @@ public:
 			  ImageViewPair<T>(std::forward<Args>(args)...),
 		  }) {}
 
-	const T &get_image(uint32_t frame_index) const {
+	T &get_image(uint32_t frame_index) {
 		return images[frame_index].get_image();
 	}
-	const ImageView &get_image_view(uint32_t frame_index) const {
+	ImageView &get_image_view(uint32_t frame_index) {
 		return images[frame_index].get_image_view();
 	}
 

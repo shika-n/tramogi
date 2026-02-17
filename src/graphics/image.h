@@ -47,7 +47,10 @@ public:
 	Image(Image &&);
 	Image &operator=(Image &&);
 
+	void generate_mipmap(const CommandBuffer &cmd);
+
 	void as_color_target(const CommandBuffer &cmd) const;
+	void as_transfer_src(const CommandBuffer &cmd) const;
 	void as_transfer_dst(const CommandBuffer &cmd) const;
 	void as_sampled(const CommandBuffer &cmd) const;
 
@@ -64,6 +67,9 @@ public:
 protected:
 	struct Impl;
 	core::UniquePtr<Impl> impl;
+
+	uint32_t width;
+	uint32_t height;
 
 	Usage usage;
 	uint32_t mipmap_level_count = 1;

@@ -3,9 +3,6 @@ add_library(
 	SHARED
 		camera.cpp
 		ortho_camera.cpp
-
-		primitives/cube.cpp
-		primitives/heightmap_terrain.cpp
 )
 
 target_link_libraries(

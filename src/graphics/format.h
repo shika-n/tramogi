@@ -11,6 +11,7 @@ enum class Format {
 	RG32Float,
 	RGB32Float,
 	RGBA16Float,
+	R32UInt,
 
 	// Colors
 	RGB8Srgb,
@@ -31,4 +32,3 @@ enum class Format {
 vk::Format native(Format format);
 
 } // namespace tramogi::graphics
-
