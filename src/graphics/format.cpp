@@ -19,6 +19,8 @@ vk::Format native(Format format) {
 		return vk::Format::eR8G8B8Srgb;
 	case Format::RGBA8Srgb:
 		return vk::Format::eR8G8B8A8Srgb;
+	case Format::RGBA8Unorm:
+		return vk::Format::eR8G8B8A8Unorm;
 	case Format::BGRA8Srgb:
 		return vk::Format::eB8G8R8A8Srgb;
 	case Format::BGRA8Unorm:

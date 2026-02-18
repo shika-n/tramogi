@@ -39,8 +39,8 @@ float4 blinn_phong(
 		skybox.Sample(reflect(normalize(position.xyz - ubo.camera_position), normal)).xyz;
 	float3 base_color = albedo.xyz * (1.0 - metalness) + reflect_color * metalness;
 
-	float3 ambient_color = float3(0.05, 0.05, 0.1) *
-						   (base_color + (0.5 * min(dot(light_dir, normal), 0.0)));
+	float3 ambient_color = float3(0.05, 0.05, 0.1) * base_color *
+						   (1.0 + (0.5 * min(dot(light_dir, normal), 0.0)));
 	float3 diffuse_color = light_factor * light_color * base_color;
 	float3 specular_color = specular_factor * float3(1.0, 0.7, 0.6);
 	float3 shadow_color = float3(0.05, 0.05, 0.1) * light_factor;

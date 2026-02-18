@@ -111,6 +111,7 @@ constexpr uint16_t UBO_DEBUG_OPTIONS_SPECULAR_BIT = 1 << 4;
 constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_BIT = 0x7 << 5;
 constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_DITHER_BIT = 0x1 << 8;
 constexpr uint16_t UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT = 0x1 << 9;
+constexpr uint16_t UBO_DEBUG_OPTIONS_NORMAL_MAP = 0x1 << 10;
 struct CameraUniformBufferObject {
 	glm::mat4 projection_view;
 	glm::mat4 inverse_projection_view;
@@ -143,6 +144,7 @@ struct CameraUniformBufferObject {
 	//   6: No shadow
 	// 1 bit - Dither
 	// 1 bit - Random Poisson
+	// 1 bit - Normal map
 	uint16_t debug_options;
 };
 
@@ -268,7 +270,7 @@ private:
 		},
 		DescriptorLayoutBinding {
 			.location = 1,
-			.count = 1,
+			.count = 2,
 			.stage = DescriptorLayoutBinding::Stage::Fragment,
 			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
@@ -493,10 +495,12 @@ private:
 
 		static bool specular_enabled = true;
 		static bool fog_enabled = true;
+		static bool normal_map_enabled = true;
 		if (ImGui::CollapsingHeader("Misc.")) {
 			ImGui::Checkbox("Fog", &fog_enabled);
 			ImGui::Checkbox("Skybox", &skybox_enabled);
 			ImGui::Checkbox("Specular", &specular_enabled);
+			ImGui::Checkbox("Apply normal map", &normal_map_enabled);
 			ImGui::Checkbox("Wireframe", &wireframe_enabled);
 			ImGui::Checkbox("Wireframe Selected Only", &wireframe_selected_only);
 		}
@@ -554,6 +558,8 @@ private:
 						(dither * UBO_DEBUG_OPTIONS_SHADOW_DITHER_BIT);
 		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT)) |
 						(random_poisson * UBO_DEBUG_OPTIONS_SHADOW_RANDOM_POISSON_BIT);
+		debug_options = (debug_options & (0xFFFF ^ UBO_DEBUG_OPTIONS_NORMAL_MAP)) |
+						(!normal_map_enabled * UBO_DEBUG_OPTIONS_NORMAL_MAP);
 
 		ImGui::End();
 
@@ -792,6 +798,11 @@ private:
 		});
 		vertex_descriptor.add_attributes({
 			.location = 3,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, tangent),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 4,
 			.format = Format::Float2,
 			.offset = offsetof(BasicVertex, uv),
 		});
@@ -966,7 +977,7 @@ private:
 						.bias = 1.5f,
 						.slope = 2.5f,
 					},
-				.cull_mode = Pipeline::Option::CullMode::Back,
+				.cull_mode = Pipeline::Option::CullMode::None,
 			}
 		);
 	}
@@ -1216,13 +1227,18 @@ private:
 					.imageView = terrain_texture->get_image_view().get_image_view(),
 					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = terrain_normal_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
 			};
 			std::array descriptor_writes {
 				vk::WriteDescriptorSet {
 					.dstSet = camera_descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 0,
 					.dstArrayElement = 0,
-					.descriptorCount = 1,
+					.descriptorCount = buffer_info.size(),
 					.descriptorType = vk::DescriptorType::eUniformBuffer,
 					.pBufferInfo = buffer_info.data(),
 				},
@@ -1230,7 +1246,7 @@ private:
 					.dstSet = object_descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 0,
 					.dstArrayElement = 0,
-					.descriptorCount = 1,
+					.descriptorCount = object_buffer_info.size(),
 					.descriptorType = vk::DescriptorType::eUniformBuffer,
 					.pBufferInfo = object_buffer_info.data(),
 				},
@@ -1238,7 +1254,7 @@ private:
 					.dstSet = object_descriptor_sets[i].get_descriptor_set(),
 					.dstBinding = 1,
 					.dstArrayElement = 0,
-					.descriptorCount = 1,
+					.descriptorCount = object_texture_info.size(),
 					.descriptorType = vk::DescriptorType::eCombinedImageSampler,
 					.pImageInfo = object_texture_info.data(),
 				},
@@ -1852,30 +1868,27 @@ private:
 		device.submit_graphics_onetime(cmd);
 	}
 
-	void load_heightmap() {
+	// TODO: Cleanup code
+	[[nodiscard]] UniquePtr<ImageViewPair<Image>> load_image(
+		const char *filepath,
+		bool is_normal_map
+	) {
 		ImageData image_data;
-		auto result = image_data.load_heightmap_from_file("textures/heightmap.png");
+		auto result = image_data.load_from_file(filepath);
 		if (!result) {
 			throw std::runtime_error(result.error());
 		}
-
-		Heightmap heightmap(
-			image_data.get_width(),
-			std::span {static_cast<const float *>(image_data.get_data()), image_data.get_size()}
-		);
-
-		terrain_mesh = std::make_unique<HeightmapTerrainMesh>(200, 200, 128, 128, 10, heightmap);
-
-		result = image_data.load_from_file("textures/ground/forrest_ground_01_diff_4k.png");
-		if (!result) {
-			throw std::runtime_error(result.error());
+		Format format = Format::RGBA8Srgb;
+		if (is_normal_map) {
+			format = Format::RGBA8Unorm;
 		}
-		terrain_texture = std::make_unique<ImageViewPair<Image>>(
+
+		UniquePtr<ImageViewPair<Image>> image_pair = std::make_unique<ImageViewPair<Image>>(
 			physical_device,
 			device,
 			image_data.get_width(),
 			image_data.get_height(),
-			Format::RGBA8Srgb,
+			format,
 			Image::Usage::Texture,
 			true
 		);
@@ -1888,7 +1901,7 @@ private:
 		CommandBuffer cmd = device.allocate_command_buffer();
 		cmd.begin_onetime();
 
-		terrain_texture->get_image().as_transfer_dst(cmd);
+		image_pair->get_image().as_transfer_dst(cmd);
 
 		vk::BufferImageCopy2 region {
 			.bufferOffset = 0,
@@ -1911,16 +1924,39 @@ private:
 
 		cmd.get_command_buffer().copyBufferToImage2({
 			.srcBuffer = stage.get_buffer(),
-			.dstImage = terrain_texture->get_image().get_image(),
+			.dstImage = image_pair->get_image().get_image(),
 			.dstImageLayout = vk::ImageLayout::eTransferDstOptimal,
 			.regionCount = 1,
 			.pRegions = &region,
 		});
 
-		terrain_texture->get_image().generate_mipmap(cmd);
+		image_pair->get_image().generate_mipmap(cmd);
 
 		cmd.end();
 		device.submit_graphics_onetime(cmd);
+
+		return image_pair;
+	}
+
+	void load_heightmap() {
+		ImageData image_data;
+		auto result = image_data.load_heightmap_from_file("textures/heightmap.png");
+		if (!result) {
+			throw std::runtime_error(result.error());
+		}
+
+		Heightmap heightmap(
+			image_data.get_width(),
+			std::span {static_cast<const float *>(image_data.get_data()), image_data.get_size()}
+		);
+
+		terrain_mesh = std::make_unique<HeightmapTerrainMesh>(200, 200, 128, 128, 10, heightmap);
+
+		terrain_texture = load_image("textures/ground/forrest_ground_01_diff_4k.png", false);
+		terrain_normal_texture =
+			load_image("textures/ground/forrest_ground_01_nor_gl_4k.png", true);
+
+		debug_log("All terrain textures loaded");
 	}
 
 	void load_obj_model() {
