@@ -61,6 +61,17 @@ vk::CullModeFlags native(Pipeline::Option::CullMode cull_mode) {
 	std::unreachable();
 }
 
+vk::PolygonMode native(Pipeline::Option::PolygonMode value) {
+	switch (value) {
+	case Pipeline::Option::PolygonMode::Fill:
+		return vk::PolygonMode::eFill;
+	case Pipeline::Option::PolygonMode::Wireframe:
+		return vk::PolygonMode::eLine;
+	}
+	assert(false && "Unknown Pipeline::Option::PolygonMode value");
+	std::unreachable();
+}
+
 Pipeline::Pipeline(
 	const Device &device,
 	const Shader &shader,
@@ -137,14 +148,14 @@ Pipeline::Pipeline(
 	vk::PipelineRasterizationStateCreateInfo rasterization_state_info {
 		.depthClampEnable = vk::True,
 		.rasterizerDiscardEnable = vk::False,
-		.polygonMode = vk::PolygonMode::eFill,
+		.polygonMode = native(pipeline_option.polygon_mode),
 		.cullMode = native(pipeline_option.cull_mode),
 		.frontFace = vk::FrontFace::eCounterClockwise,
 		.depthBiasEnable = native(pipeline_option.depth_bias.has_value()),
 		.depthBiasConstantFactor = depth_bias_factor,
 		.depthBiasClamp = 0.0,
 		.depthBiasSlopeFactor = depth_bias_slope_factor,
-		.lineWidth = 1,
+		.lineWidth = 2.0f,
 	};
 	vk::PipelineMultisampleStateCreateInfo multisample_info {
 		.rasterizationSamples = vk::SampleCountFlagBits::e1,

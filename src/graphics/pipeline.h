@@ -36,6 +36,10 @@ public:
 			Less,
 			LessOrEqual,
 		};
+		enum class PolygonMode {
+			Fill,
+			Wireframe,
+		};
 		enum class CullMode {
 			None,
 			Back,
@@ -51,6 +55,7 @@ public:
 		DepthCompare depth_compare = DepthCompare::Less;
 		core::Optional<DepthBias> depth_bias = core::optional::none;
 		CullMode cull_mode = CullMode::Back;
+		PolygonMode polygon_mode = PolygonMode::Fill;
 	};
 	Pipeline(
 		const Device &device,

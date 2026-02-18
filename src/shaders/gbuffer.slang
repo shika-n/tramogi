@@ -1,13 +1,6 @@
 import camera;
 import object;
-
-struct VertexInput {
-	uint instance_id : SV_InstanceID;
-	float3 position;
-	float3 color;
-	float3 normal;
-	float2 uv;
-};
+import commons.basic_vertex;
 
 struct VertexOutput {
 	float4 position : SV_Position;
@@ -22,6 +15,11 @@ struct FragmentOutput {
 	uint32_t object_id : SV_Target2;
 };
 
+struct PushConstantData {
+	const uint32_t model_id;
+	const uint32_t texture_id;
+};
+
 [[vk_binding(0, 0)]]
 ConstantBuffer<UniformBuffer> ubo;
 
@@ -31,10 +29,6 @@ ConstantBuffer<ObjectUniformBuffer> object_ubo;
 [[vk_binding(1, 1)]]
 Sampler2D sampler;
 
-struct PushConstantData {
-	const uint32_t model_id;
-	const uint32_t texture_id;
-};
 [[vk_push_constant]]
 const PushConstantData pc;
 
@@ -77,9 +71,16 @@ float4 shadow_vert(VertexInput input) : SV_Position {
 	return mul(ubo.shadow_projection_view, world_position);
 }
 
+[shader("vertex")]
+float4 basic_vert(VertexInput input) : SV_Position {
+	float4 world_position =
+		mul(object_ubo.transform_matrices[pc.model_id].model, float4(input.position, 1.0));
+	return mul(ubo.projection_view, world_position);
+}
+
 [shader("fragment")]
-float4 shadow_frag() : SV_Target0 {
-	return float4(1.0);
+float4 solid_frag() : SV_Target0 {
+	return float4(float3(0.0), 1.0);
 }
 
 

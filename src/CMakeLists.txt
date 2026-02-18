@@ -80,7 +80,8 @@ add_slang_shader_target(slang-gbuffer
 		-entry vert_main
 		-entry frag_main
 		-entry shadow_vert
-		-entry shadow_frag
+		-entry basic_vert
+		-entry solid_frag
 )
 add_slang_shader_target(slang-shading
 	OUTPUT

@@ -219,6 +219,7 @@ private:
 	UniquePtr<Pipeline> shadow_pipeline;
 	UniquePtr<Pipeline> shading_pipeline;
 	UniquePtr<Pipeline> skybox_pipeline;
+	UniquePtr<Pipeline> wireframe_pipeline;
 
 	constexpr static std::array camera_binds = {
 		DescriptorLayoutBinding {
@@ -286,6 +287,7 @@ private:
 	AttachmentLayout shading_attachment_layout;
 	AttachmentLayout skybox_attachment_layout;
 	AttachmentLayout shadow_attachment_layout;
+	AttachmentLayout wireframe_attachment_layout;
 
 	vk::raii::Sampler sampler = nullptr;
 	vk::raii::Sampler depth_sampler = nullptr;
@@ -318,6 +320,8 @@ private:
 
 	uint16_t debug_options = 0;
 	bool skybox_enabled = true;
+	bool wireframe_enabled = false;
+	bool wireframe_selected_only = true;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -376,6 +380,7 @@ private:
 		create_shading_pipeline();
 		create_skybox_pipeline();
 		create_shadow_pipeline();
+		create_wireframe_pipeline();
 
 		create_texture_sampler();
 
@@ -490,6 +495,8 @@ private:
 			ImGui::Checkbox("Fog", &fog_enabled);
 			ImGui::Checkbox("Skybox", &skybox_enabled);
 			ImGui::Checkbox("Specular", &specular_enabled);
+			ImGui::Checkbox("Wireframe", &wireframe_enabled);
+			ImGui::Checkbox("Wireframe Selected Only", &wireframe_selected_only);
 		}
 
 		if (ImGui::CollapsingHeader("Scene")) {
@@ -902,7 +909,6 @@ private:
 
 		Shader shader_module(device, shader_code);
 		shader_module.add_vertex_stage("shadow_vert");
-		shader_module.add_fragment_stage("shadow_frag");
 
 		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, sizeof(BasicVertex));
 		vertex_descriptor.add_attributes({
@@ -949,6 +955,73 @@ private:
 						.slope = 2.5f,
 					},
 				.cull_mode = Pipeline::Option::CullMode::Back,
+			}
+		);
+	}
+
+	void create_wireframe_pipeline() {
+		auto shader_code_result = read_shader_file("shaders/gbuffer.spv");
+		if (!shader_code_result) {
+			throw std::runtime_error(shader_code_result.error());
+		}
+		auto shader_code = shader_code_result.value();
+
+		Shader shader_module(device, shader_code);
+		shader_module.add_vertex_stage("basic_vert");
+		shader_module.add_fragment_stage("solid_frag");
+
+		VertexDescriptor vertex_descriptor(VertexDescriptor::Type::Vertex, 0, sizeof(BasicVertex));
+		vertex_descriptor.add_attributes({
+			.location = 0,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, position),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 1,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, color),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 2,
+			.format = Format::Float3,
+			.offset = offsetof(BasicVertex, normal),
+		});
+		vertex_descriptor.add_attributes({
+			.location = 3,
+			.format = Format::Float2,
+			.offset = offsetof(BasicVertex, uv),
+		});
+		wireframe_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Depth,
+			depth_image->get_image(0).get_format()
+		);
+		wireframe_attachment_layout.add_attachment(
+			AttachmentLayout::Type::Color0,
+			offscreen_framebuffer->get_image(0).get_format()
+		);
+
+		wireframe_attachment_layout.set_load_operation(
+			AttachmentLayout::Type::Depth,
+			AttachmentLayout::LoadOperation::Load
+		);
+		wireframe_attachment_layout.set_load_operation(
+			AttachmentLayout::Type::Color0,
+			AttachmentLayout::LoadOperation::Load
+		);
+
+		wireframe_pipeline = std::make_unique<Pipeline>(
+			device,
+			shader_module,
+			std::initializer_list {
+				&camera_descriptor_layout,
+				&object_descriptor_layout,
+			},
+			vertex_descriptor,
+			wireframe_attachment_layout,
+			Pipeline::Option {
+				.depth_test = Pipeline::Option::DepthTest::DepthTestOnly,
+				.depth_compare = Pipeline::Option::DepthCompare::LessOrEqual,
+				.polygon_mode = Pipeline::Option::PolygonMode::Wireframe,
 			}
 		);
 	}
@@ -1250,7 +1323,7 @@ private:
 		device.submit_graphics_onetime(cmd);
 	}
 
-	void record_draw_objects(const CommandBuffer &command_buffer) {
+	void record_draw_objects(const CommandBuffer &command_buffer, bool selected_only) {
 		PushConstantData push_constant_data;
 		vk::PushConstantsInfo push_contant_info {
 			.layout = gbuffer_pipeline->get_layout(),
@@ -1261,7 +1334,8 @@ private:
 
 		for (size_t i = 0; i < models.size(); ++i) {
 			const auto &model = models[i];
-			if (model.get_mesh() == nullptr) {
+			if (model.get_mesh() == nullptr ||
+				(selected_only && current_picked_id != model.get_id())) {
 				continue;
 			}
 
@@ -1332,7 +1406,7 @@ private:
 			nullptr
 		);
 
-		record_draw_objects(command_buffer);
+		record_draw_objects(command_buffer, false);
 
 		command_buffer.get_command_buffer().endRendering();
 	}
@@ -1411,6 +1485,43 @@ private:
 		command_buffer.get_command_buffer().endRendering();
 	}
 
+	void record_wireframe_pass(const CommandBuffer &command_buffer) {
+		depth_image->get_image(current_frame).as_depth_target(command_buffer);
+		offscreen_framebuffer->get_image(current_frame).as_color_target(command_buffer);
+
+		std::span screen_pass_attachments = wireframe_attachment_layout.get_color_infos({
+			{AttachmentLayout::Type::Color0, &offscreen_framebuffer->get_image_view(current_frame)},
+		});
+		vk::RenderingInfo light_pass_render_info {
+			.renderArea = {.offset = {0, 0}, .extent = swapchain.get_extent()},
+			.layerCount = 1,
+			.colorAttachmentCount = static_cast<uint32_t>(screen_pass_attachments.size()),
+			.pColorAttachments = screen_pass_attachments.data(),
+			.pDepthAttachment = &wireframe_attachment_layout.get_depth_info(
+				depth_image->get_image_view(current_frame)
+			),
+		};
+		command_buffer.get_command_buffer().beginRendering(light_pass_render_info);
+		command_buffer.get_command_buffer().bindPipeline(
+			vk::PipelineBindPoint::eGraphics,
+			wireframe_pipeline->get_pipeline()
+		);
+		command_buffer.get_command_buffer().bindDescriptorSets(
+			vk::PipelineBindPoint::eGraphics,
+			wireframe_pipeline->get_layout(),
+			0,
+			{
+				*camera_descriptor_sets[current_frame].get_descriptor_set(),
+				*object_descriptor_sets[current_frame].get_descriptor_set(),
+			},
+			nullptr
+		);
+
+		record_draw_objects(command_buffer, wireframe_selected_only);
+
+		command_buffer.get_command_buffer().endRendering();
+	}
+
 	void record_shadow_pass(const CommandBuffer &command_buffer) {
 		shadow_depth_image->get_image(current_frame).as_depth_target(command_buffer);
 		command_buffer.get_command_buffer().setViewport(
@@ -1462,7 +1573,7 @@ private:
 			nullptr
 		);
 
-		record_draw_objects(command_buffer);
+		record_draw_objects(command_buffer, false);
 
 		command_buffer.get_command_buffer().endRendering();
 
@@ -1524,6 +1635,9 @@ private:
 		record_shading_pass(command_buffer);
 		if (skybox_enabled) {
 			record_skybox_pass(command_buffer);
+		}
+		if (wireframe_enabled) {
+			record_wireframe_pass(command_buffer);
 		}
 		record_imgui_pass(command_buffer);
 
