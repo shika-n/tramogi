@@ -5,6 +5,7 @@ public struct ObjectTransformMatrices {
 	public float4x4 normal_matrix;
 
 	public float metalness;
+	public uint32_t texture_normal_id;
 };
 
 public struct ObjectUniformBuffer {

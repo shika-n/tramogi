@@ -5,7 +5,9 @@ public struct VertexInput {
 	public float3 position;
 	public float3 color;
 	public float3 normal;
+	public float3 tangent;
 	public float2 uv;
 };
+
 
 

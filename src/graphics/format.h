@@ -16,6 +16,7 @@ enum class Format {
 	// Colors
 	RGB8Srgb,
 	RGBA8Srgb,
+	RGBA8Unorm,
 	BGRA8Srgb,
 	BGRA8Unorm,
 

@@ -101,40 +101,49 @@ HeightmapTerrainMesh::HeightmapTerrainMesh(
 				-(tile_z + 1) * tile_d - (-depth / 2)
 			);
 
+			glm::vec3 tangent0 = glm::normalize(pos_ur - pos_ul);
+			glm::vec3 tangent1 = glm::normalize(pos_br - pos_bl);
+
 			vertices[tile_i + 0] = {
 				.position = pos_ul,
 				.color = color,
 				.normal = normal0,
+				.tangent = tangent0,
 				.uv = uv_ul,
 			};
 			vertices[tile_i + 1] = {
 				.position = pos_br,
 				.color = color,
 				.normal = normal0,
+				.tangent = tangent0,
 				.uv = uv_br,
 			};
 			vertices[tile_i + 2] = {
 				.position = pos_ur,
 				.color = color,
 				.normal = normal0,
+				.tangent = tangent0,
 				.uv = uv_ur,
 			};
 			vertices[tile_i + 3] = {
 				.position = pos_ul,
 				.color = color,
 				.normal = normal1,
+				.tangent = tangent1,
 				.uv = uv_ul,
 			};
 			vertices[tile_i + 4] = {
 				.position = pos_bl,
 				.color = color,
 				.normal = normal1,
+				.tangent = tangent1,
 				.uv = uv_bl,
 			};
 			vertices[tile_i + 5] = {
 				.position = pos_br,
 				.color = color,
 				.normal = normal1,
+				.tangent = tangent1,
 				.uv = uv_br,
 			};
 			indices.push_back(tile_i + 0);

@@ -48,8 +48,9 @@ bool Mesh::load_from_obj_file(const char *filepath) {
 							attrib.vertices[3 * index.vertex_index + 1],
 							attrib.vertices[3 * index.vertex_index + 2],
 						},
-					.color = {1, 1, 1},
+					.color = {0.8f, 0.8f, 0.8f},
 					.normal = normal,
+					.tangent = {1, 0, 0},
 					.uv = uv,
 				};
 
