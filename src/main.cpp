@@ -326,6 +326,7 @@ private:
 	bool skybox_enabled = true;
 	bool wireframe_enabled = false;
 	bool wireframe_selected_only = true;
+	bool auto_update_enabled = true;
 
 	void init_window() {
 		window.set_key_callback([this](int scancode, bool is_pressed) {
@@ -503,6 +504,7 @@ private:
 			ImGui::Checkbox("Apply normal map", &normal_map_enabled);
 			ImGui::Checkbox("Wireframe", &wireframe_enabled);
 			ImGui::Checkbox("Wireframe Selected Only", &wireframe_selected_only);
+			ImGui::Checkbox("Enable auto update", &auto_update_enabled);
 		}
 
 		if (ImGui::CollapsingHeader("Scene")) {
@@ -537,10 +539,18 @@ private:
 					}
 				}
 
-				Model model(next_id, mesh_ptrs[selected_mesh_index]);
+				Mesh *mesh_ptr = mesh_ptrs[selected_mesh_index];
+
+				Model model(next_id, mesh_ptr);
 				model.set_name(
 					std::format("Object {} - {}", model.get_id(), mesh_names[selected_mesh_index])
 				);
+				if (mesh_ptr == &bunny_mesh) {
+					model.set_scale(glm::vec3(20));
+				} else if (mesh_ptr == &lucy_mesh) {
+					model.set_scale(glm::vec3(5));
+				}
+
 				models.emplace_back(std::move(model));
 				id_cache.insert(next_id);
 			}
@@ -731,18 +741,32 @@ private:
 			);
 			shadow_camera.update_view();
 
-			for (auto &model : models) {
-				if (model.get_mesh() == &bunny_mesh) {
-					model.set_position({
-						model.get_position().x,
-						model.get_position().y + std::sin((time + model.get_id()) * 5.0f) * 0.1f,
-						model.get_position().z,
-					});
-				}
-			}
-
 			if (is_imgui_visible) {
 				prepare_imgui_components();
+			}
+
+			if (auto_update_enabled) {
+				for (auto &model : models) {
+					if (model.get_mesh() == &bunny_mesh) {
+						model.set_position({
+							model.get_position().x,
+							std::max(std::sin((time + model.get_id()) * 5.0f) * 2.0f, 0.0) - 0.5f,
+							model.get_position().z,
+						});
+					} else if (model.get_mesh() == &cube_mesh) {
+						model.set_orientation(
+							model.get_orientation() *
+							glm::angleAxis(
+								glm::radians(90.0f) * static_cast<float>(delta),
+								glm::vec3(0, 1, 0)
+							) *
+							glm::angleAxis(
+								glm::radians(30.0f) * static_cast<float>(delta),
+								model.get_orientation() * glm::vec3(1, 0, 0)
+							)
+						);
+					}
+				}
 			}
 
 			draw_frame(delta);
