@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <print>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -311,6 +312,7 @@ private:
 	Mesh lucy_mesh;
 
 	std::vector<Model> models;
+	std::set<uint32_t> id_cache;
 
 	uint32_t current_picked_id = 0;
 
@@ -523,11 +525,20 @@ private:
 				ImGui::EndCombo();
 			}
 			if (ImGui::Button("Add Object")) {
-				Model model(models.size(), mesh_ptrs[selected_mesh_index]);
+				uint32_t next_id = 0;
+				for (size_t i = 0; i <= id_cache.size(); ++i) {
+					if (id_cache.count(i) == 0) {
+						next_id = i;
+						break;
+					}
+				}
+
+				Model model(next_id, mesh_ptrs[selected_mesh_index]);
 				model.set_name(
 					std::format("Object {} - {}", model.get_id(), mesh_names[selected_mesh_index])
 				);
 				models.emplace_back(std::move(model));
+				id_cache.insert(next_id);
 			}
 		}
 
@@ -603,6 +614,7 @@ private:
 						return &model == &value;
 					});
 					if (result != models.cend()) {
+						id_cache.erase(result->get_id());
 						models.erase(result);
 					}
 				}
@@ -1944,6 +1956,10 @@ private:
 		models.push_back(bunny);
 		models.push_back(dragon);
 		models.push_back(lucy);
+
+		for (const auto &model : models) {
+			id_cache.insert(model.get_id());
+		}
 		debug_log("All models pushed");
 	}
 
