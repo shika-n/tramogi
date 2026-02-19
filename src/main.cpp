@@ -464,25 +464,39 @@ private:
 	}
 
 	void prepare_imgui_components() {
-		ImGui::Begin("Properties");
+		ImGui::Begin("ヘルプ");
+		ImGui::Text("ミドルドラッグ         - でカメラを回転");
+		ImGui::Text("Shift + ミドルドラッグ - でカメラの位置を動ける");
+		ImGui::Text("左クリック             - オブジェクト選択");
+		ImGui::Text("G                      - トランスフォーム - 置");
+		ImGui::Text("R                      - トランスフォーム - 転");
+		ImGui::Text("S                      - トランスフォーム - ケール");
+		ImGui::Text("左クリック             - トランスフォーム - 適用");
+		ImGui::Text("右クリック             - トランスフォーム - ャンセル");
+		ImGui::End();
+
+		ImGui::Begin("プロパティー");
 		ImGui::Text(
-			"Position %.3f %.3f %.3f",
+			"位置 %.3f %.3f %.3f",
 			camera.get_position().x,
 			camera.get_position().y,
 			camera.get_position().z
 		);
-		ImGui::Text("Mouse %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
+		ImGui::Text("マウス %.3f %.3f", mouse_input.get_x(), mouse_input.get_y());
 
 		ImGui::Text(
-			"Light %.3f %.3f %.3f",
+			"ライト %.3f %.3f %.3f",
 			shadow_camera.get_forward().x,
 			shadow_camera.get_forward().y,
 			shadow_camera.get_forward().z
 		);
 
-		if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::CollapsingHeader(
+				"ディレクショナルライト・照明",
+				ImGuiTreeNodeFlags_DefaultOpen
+			)) {
 			ImGui::DragFloat(
-				"Yaw",
+				"ヨー",
 				&directional_light_angles.y,
 				0.25f,
 				0,
@@ -490,58 +504,58 @@ private:
 				"%0.01f",
 				ImGuiSliderFlags_WrapAround
 			);
-			ImGui::DragFloat("Pitch", &directional_light_angles.x, 0.05f, -90, 90, "%0.01f");
+			ImGui::DragFloat("ピッチ", &directional_light_angles.x, 0.05f, -90, 90, "%0.01f");
 		}
 
 		static int32_t gbuffer_debug = 0;
-		if (ImGui::CollapsingHeader("Geometry Buffer", ImGuiTreeNodeFlags_DefaultOpen)) {
-			ImGui::RadioButton("Shaded", &gbuffer_debug, 0);
+		if (ImGui::CollapsingHeader("ジオメトリバッファ", ImGuiTreeNodeFlags_DefaultOpen)) {
+			ImGui::RadioButton("シェーディング", &gbuffer_debug, 0);
 			ImGui::SameLine();
-			ImGui::RadioButton("Albedo", &gbuffer_debug, 1);
-			ImGui::RadioButton("Normal", &gbuffer_debug, 2);
+			ImGui::RadioButton("アルベド・色", &gbuffer_debug, 1);
+			ImGui::RadioButton("法線", &gbuffer_debug, 2);
 			ImGui::SameLine();
-			ImGui::RadioButton("Depth", &gbuffer_debug, 3);
-			ImGui::RadioButton("Position", &gbuffer_debug, 4);
+			ImGui::RadioButton("深度", &gbuffer_debug, 3);
+			ImGui::RadioButton("位置", &gbuffer_debug, 4);
 		}
 
 		static int32_t selected_shadow_type = 0;
 		static bool random_poisson = false;
 		static bool dither = false;
-		if (ImGui::CollapsingHeader("Shadow")) {
-			ImGui::RadioButton("1. Poisson + hardware PCF (x16)", &selected_shadow_type, 0);
-			ImGui::RadioButton("2. Poisson PCF (x16)", &selected_shadow_type, 1);
-			ImGui::RadioButton("1. Hardware PCF (x16)", &selected_shadow_type, 2);
-			ImGui::RadioButton("3. Poisson PCF (x8)", &selected_shadow_type, 3);
-			ImGui::RadioButton("4. Hardware PCF (x4)", &selected_shadow_type, 4);
-			ImGui::RadioButton("5. No PCF (x1)", &selected_shadow_type, 5);
-			ImGui::RadioButton("6. No shadow", &selected_shadow_type, 6);
+		if (ImGui::CollapsingHeader("シャドウ・影")) {
+			ImGui::RadioButton("1. ポアソン + ハードウェアPCF (x16)", &selected_shadow_type, 0);
+			ImGui::RadioButton("2. ポアソンPCF (x16)", &selected_shadow_type, 1);
+			ImGui::RadioButton("1. ハードウェアPCF (x16)", &selected_shadow_type, 2);
+			ImGui::RadioButton("3. ポアソンPCF (x8)", &selected_shadow_type, 3);
+			ImGui::RadioButton("4. ハードウェアPCF (x4)", &selected_shadow_type, 4);
+			ImGui::RadioButton("5. PCFなし (x1)", &selected_shadow_type, 5);
+			ImGui::RadioButton("6. シャドウなし", &selected_shadow_type, 6);
 
 			ImGui::Separator();
-			ImGui::Checkbox("Dither", &dither);
-			ImGui::Checkbox("Random poisson disk", &random_poisson);
+			ImGui::Checkbox("ディザリング", &dither);
+			ImGui::Checkbox("ランダム・ポアソンディスク", &random_poisson);
 		}
 
 		static bool specular_enabled = true;
 		static bool fog_enabled = true;
 		static bool normal_map_enabled = true;
-		if (ImGui::CollapsingHeader("Misc.")) {
-			ImGui::Checkbox("Fog", &fog_enabled);
-			ImGui::Checkbox("Skybox", &skybox_enabled);
-			ImGui::Checkbox("Specular", &specular_enabled);
-			ImGui::Checkbox("Apply normal map", &normal_map_enabled);
-			ImGui::Checkbox("Wireframe", &wireframe_enabled);
-			ImGui::Checkbox("Wireframe Selected Only", &wireframe_selected_only);
-			ImGui::Checkbox("Enable auto update", &auto_update_enabled);
+		if (ImGui::CollapsingHeader("その他")) {
+			ImGui::Checkbox("フォグ", &fog_enabled);
+			ImGui::Checkbox("スカイボックス", &skybox_enabled);
+			ImGui::Checkbox("スペキュラー", &specular_enabled);
+			ImGui::Checkbox("法線マップ有効", &normal_map_enabled);
+			ImGui::Checkbox("ワイヤーフレーム", &wireframe_enabled);
+			ImGui::Checkbox("ワイヤーフレーム - 選択のみ", &wireframe_selected_only);
+			ImGui::Checkbox("自動アップデート有効", &auto_update_enabled);
 		}
 
-		if (ImGui::CollapsingHeader("Scene")) {
+		if (ImGui::CollapsingHeader("シーン")) {
 			std::array mesh_names = {
-				"Cube",
-				"Stanford Bunny",
-				"Stanford Dragon",
-				"Stanford Lucy",
-				"Cat Statue",
-				"Boulder",
+				"立方体",
+				"スタンフォード・バニー",
+				"スタンフォード・ドラゴン",
+				"スタンフォード・ルーシー",
+				"猫の像",
+				"岩",
 			};
 
 			std::array mesh_ptrs = {
@@ -553,7 +567,7 @@ private:
 				&boulder_mesh,
 			};
 			static int32_t selected_mesh_index = 0;
-			if (ImGui::BeginCombo("Mesh", mesh_names[selected_mesh_index])) {
+			if (ImGui::BeginCombo("メッシュ", mesh_names[selected_mesh_index])) {
 				for (size_t i = 0; i < mesh_names.size(); ++i) {
 					if (ImGui::Selectable(mesh_names[i], false)) {
 						selected_mesh_index = i;
@@ -561,7 +575,7 @@ private:
 				}
 				ImGui::EndCombo();
 			}
-			if (ImGui::Button("Add Object")) {
+			if (ImGui::Button("シーンに追加")) {
 				uint32_t next_id = 0;
 				for (size_t i = 0; i <= id_cache.size(); ++i) {
 					if (id_cache.count(i) == 0) {
@@ -574,7 +588,11 @@ private:
 
 				Model model(next_id, mesh_ptr);
 				model.set_name(
-					std::format("Object {} - {}", model.get_id(), mesh_names[selected_mesh_index])
+					std::format(
+						"オブジェクト {} - {}",
+						model.get_id(),
+						mesh_names[selected_mesh_index]
+					)
 				);
 				if (mesh_ptr == &bunny_mesh) {
 					model.set_scale(glm::vec3(20));
@@ -611,8 +629,8 @@ private:
 
 		ImGui::End();
 
-		ImGui::Begin("Objects");
-		if (ImGui::TreeNodeEx("Scene", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Begin("オブジェクト");
+		if (ImGui::TreeNodeEx("シーン", ImGuiTreeNodeFlags_DefaultOpen)) {
 			for (auto &model : models) {
 				ImGuiTreeNodeFlags selected_flag = ImGuiTreeNodeFlags_None;
 				if (model.get_id() == current_picked_id) {
@@ -628,42 +646,42 @@ private:
 		}
 		ImGui::End();
 
-		ImGui::Begin("Object Property");
+		ImGui::Begin("オブジェクト・プロパティー");
 		for (auto &model : models) {
 			if (current_picked_id != std::numeric_limits<uint32_t>::max() &&
 				model.get_id() == current_picked_id) {
-				ImGui::Text("Selected: [%i] %s", model.get_id(), model.get_name().data());
+				ImGui::Text("ID: %i", model.get_id());
 
 				static char name[33] = "\0";
 				memset(name, '\0', 33);
 				model.get_name().copy(name, 32);
-				ImGui::InputText("Name", name, 32);
+				ImGui::InputText("名前", name, 32);
 				model.set_name(name);
 
 				static glm::vec3 position;
 				position = model.get_position();
-				ImGui::DragFloat3("Position", &position.x, 0.1f);
+				ImGui::DragFloat3("位置", &position.x, 0.1f);
 				model.set_position(position);
 
 				static glm::vec3 scale;
 				scale = model.get_scale();
-				ImGui::DragFloat3("Scale", &scale.x, 0.1f);
+				ImGui::DragFloat3("スケール", &scale.x, 0.1f);
 				model.set_scale(scale);
 
 				static glm::vec3 rotation;
 				rotation = glm::degrees(glm::eulerAngles(model.get_orientation()));
-				ImGui::DragFloat3("Rotation", &rotation.x, 0.1f);
+				ImGui::DragFloat3("回転", &rotation.x, 0.1f);
 				model.set_orientation(glm::quat(glm::radians(rotation)));
 
 				static float metalness;
 				metalness = model.get_metalness();
-				ImGui::SliderFloat("Metalness", &metalness, 0.0, 1.0);
+				ImGui::SliderFloat("メタリック", &metalness, 0.0, 1.0);
 				model.set_metalness(metalness);
 
-				if (ImGui::Button("Set as Camera POI")) {
+				if (ImGui::Button("カメラの注視点に設定")) {
 					camera.set_point_of_interest(model.get_position());
 				}
-				if (ImGui::Button("Delete")) {
+				if (ImGui::Button("削除")) {
 					auto result = std::ranges::find_if(models, [&model](auto &value) -> bool {
 						return &model == &value;
 					});

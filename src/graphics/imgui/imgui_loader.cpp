@@ -18,7 +18,8 @@ ImGuiContext *init(const Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_i
 	ImGuiContext *ctx = ImGui::CreateContext();
 	ImGui::StyleColorsDark();
 
-	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	ImGuiIO &imgui_io = ImGui::GetIO();
+	imgui_io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
 	ImGui_ImplVulkan_LoadFunctions(
 		vk::ApiVersion14,
@@ -31,6 +32,13 @@ ImGuiContext *init(const Window &window, ImGui_ImplVulkan_InitInfo *imgui_init_i
 
 	ImGui_ImplGlfw_InitForVulkan(window.get_glfw_window(), true);
 	ImGui_ImplVulkan_Init(imgui_init_info);
+
+	imgui_io.Fonts->AddFontFromFileTTF(
+		"fonts/NotoSansJP-Regular.ttf",
+		20.0f,
+		nullptr,
+		imgui_io.Fonts->GetGlyphRangesJapanese()
+	);
 
 	return ctx;
 }
@@ -76,9 +84,9 @@ void next_frame() {
 			&bottom_right_split_id
 		);
 
-		ImGui::DockBuilderDockWindow("Properties", left_split_id);
-		ImGui::DockBuilderDockWindow("Objects", upper_right_split_id);
-		ImGui::DockBuilderDockWindow("Object Property", bottom_right_split_id);
+		ImGui::DockBuilderDockWindow("プロパティー", left_split_id);
+		ImGui::DockBuilderDockWindow("オブジェクト", upper_right_split_id);
+		ImGui::DockBuilderDockWindow("オブジェクト・プロパティー", bottom_right_split_id);
 	}
 
 	ImGui::DockSpaceOverViewport(dockspace_id, viewport, ImGuiDockNodeFlags_PassthruCentralNode);
