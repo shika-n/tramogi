@@ -177,7 +177,8 @@ public:
 		  skybox_descriptor_layout(device, skybox_binds),
 		  object_descriptor_layout(device, object_binds),
 		  sky_cubemap(physical_device, device, 512, 512, Format::RGBA8Srgb, false),
-		  camera(WIDTH, HEIGHT, glm::radians(FOV)), shadow_camera(200, 200, 0, 1000) {
+		  camera(WIDTH, HEIGHT, glm::radians(FOV)), shadow_camera(200, 200, 0, 1000),
+		  transform_undo_model(0, nullptr) {
 		camera.set_position({0, 0, -5});
 		shadow_camera.set_position({0, 2, 0});
 	}
@@ -195,6 +196,12 @@ public:
 	}
 
 private:
+	enum class TransformType {
+		None,
+		Position,
+		Rotation,
+		Scale,
+	};
 	Window window;
 
 	Instance instance;
@@ -326,6 +333,8 @@ private:
 	std::set<uint32_t> id_cache;
 
 	uint32_t current_picked_id = 0;
+	TransformType transform_type = TransformType::None;
+	Model transform_undo_model;
 
 	bool is_imgui_visible = true;
 
@@ -739,6 +748,20 @@ private:
 
 				handle_transforms();
 
+				if (transform_type != TransformType::None) {
+					if (mouse_input.is_pressed(MouseButton::Left)) {
+						mouse_input.consume_mouse(MouseButton::Left);
+						transform_type = TransformType::None;
+					} else if (mouse_input.is_pressed(MouseButton::Right)) {
+						auto model = std::ranges::find_if(models, [this](const auto &model) {
+							return model.get_id() == current_picked_id;
+						});
+						if (model != models.end()) {
+							*model = transform_undo_model;
+						}
+						transform_type = TransformType::None;
+					}
+				}
 				if (mouse_input.is_pressed(MouseButton::Left) && pressed_x < 0.0f &&
 					pressed_y < 0.0f) {
 					pressed_x = mouse_input.get_x();
@@ -802,75 +825,87 @@ private:
 	}
 
 	void handle_transforms() {
+		static float start_x = 0.0f;
+		static float start_y = 0.0f;
 		static float move_last_x = 0.0f;
 		static float move_last_y = 0.0f;
-		static bool is_transforming = false;
+		auto model_ptr = std::ranges::find_if(models, [this](const auto &model) {
+			return model.get_id() == current_picked_id;
+		});
+		if (model_ptr == models.end()) {
+			return;
+		}
+
+		if (transform_type == TransformType::Position) {
+			float distance = glm::distance(model_ptr->get_position(), camera.get_position());
+			if (key_input.is_pressed(Key::Shift)) {
+				model_ptr->set_position(
+					model_ptr->get_position() +
+					(camera.get_forward() *
+					 -static_cast<float>(mouse_input.get_y() - move_last_y)) *
+						distance * 0.005f
+				);
+			} else {
+				model_ptr->set_position(
+					model_ptr->get_position() +
+					(camera.get_right() * static_cast<float>(mouse_input.get_x() - move_last_x) +
+					 camera.get_up() * -static_cast<float>(mouse_input.get_y() - move_last_y)) *
+						distance * 0.005f
+				);
+			}
+		} else if (transform_type == TransformType::Scale) {
+			glm::vec4 object_ndc =
+				(camera.get_projection() * camera.get_view() *
+				 glm::vec4(transform_undo_model.get_position(), 1.0f));
+			glm::vec2 object_screen_pos = (glm::vec2(object_ndc.x, object_ndc.y) / object_ndc.w) *
+											  0.5f +
+										  0.5f;
+
+			float mouse_object_dx = object_screen_pos.x - mouse_input.get_x() / WIDTH;
+			float mouse_object_dy = object_screen_pos.y - mouse_input.get_y() / HEIGHT;
+			float mouse_start_object_dx = object_screen_pos.x - start_x / WIDTH;
+			float mouse_start_object_dy = object_screen_pos.y - start_y / HEIGHT;
+			float mouse_object_distance = std::sqrt(
+				mouse_object_dx * mouse_object_dx + mouse_object_dy * mouse_object_dy
+			);
+			float mouse_start_object_distance = std::sqrt(
+				mouse_start_object_dx * mouse_start_object_dx +
+				mouse_start_object_dy * mouse_start_object_dy
+			);
+
+			float multiplier = mouse_object_distance / mouse_start_object_distance;
+			model_ptr->set_scale(transform_undo_model.get_scale() * multiplier);
+		} else if (transform_type == TransformType::Rotation) {
+			model_ptr->set_orientation(
+				glm::angleAxis(
+					-static_cast<float>(mouse_input.get_x() - move_last_x) * 0.01f,
+					camera.get_up()
+				) *
+				glm::angleAxis(
+					-static_cast<float>(mouse_input.get_y() - move_last_y) * 0.01f,
+					camera.get_right()
+				) *
+				model_ptr->get_orientation()
+			);
+		}
 		if (key_input.is_pressed(Key::G)) {
-			if (is_transforming) {
-				for (auto &model : models) {
-					if (model.get_id() == current_picked_id) {
-						float distance = glm::distance(model.get_position(), camera.get_position());
-						if (key_input.is_pressed(Key::Shift)) {
-							model.set_position(
-								model.get_position() +
-								(camera.get_forward() *
-								 -static_cast<float>(mouse_input.get_y() - move_last_y)) *
-									distance * 0.005f
-							);
-						} else {
-							model.set_position(
-								model.get_position() +
-								(camera.get_right() *
-									 static_cast<float>(mouse_input.get_x() - move_last_x) +
-								 camera.get_up() *
-									 -static_cast<float>(mouse_input.get_y() - move_last_y)) *
-									distance * 0.005f
-							);
-						}
-					}
-				}
-			} else {
-				is_transforming = true;
-			}
-		} else if (key_input.is_pressed(Key::S)) {
-			if (is_transforming) {
-				for (auto &model : models) {
-					if (model.get_id() == current_picked_id) {
-						float distance = glm::distance(model.get_position(), camera.get_position());
-						model.set_scale(
-							model.get_scale() + glm::vec3(
-													(mouse_input.get_x() - move_last_x) +
-													(mouse_input.get_y() - move_last_y)
-												) * distance *
-													0.005f
-						);
-					}
-				}
-			} else {
-				is_transforming = true;
-			}
+			key_input.consume_key(Key::G);
+			transform_type = TransformType::Position;
+			transform_undo_model = *model_ptr;
+			start_x = mouse_input.get_x();
+			start_y = mouse_input.get_y();
 		} else if (key_input.is_pressed(Key::R)) {
-			if (is_transforming) {
-				for (auto &model : models) {
-					if (model.get_id() == current_picked_id) {
-						model.set_orientation(
-							glm::angleAxis(
-								-static_cast<float>(mouse_input.get_x() - move_last_x) * 0.01f,
-								camera.get_up()
-							) *
-							glm::angleAxis(
-								-static_cast<float>(mouse_input.get_y() - move_last_y) * 0.01f,
-								camera.get_right()
-							) *
-							model.get_orientation()
-						);
-					}
-				}
-			} else {
-				is_transforming = true;
-			}
-		} else {
-			is_transforming = false;
+			key_input.consume_key(Key::R);
+			transform_type = TransformType::Rotation;
+			transform_undo_model = *model_ptr;
+			start_x = mouse_input.get_x();
+			start_y = mouse_input.get_y();
+		} else if (key_input.is_pressed(Key::S)) {
+			key_input.consume_key(Key::S);
+			transform_type = TransformType::Scale;
+			transform_undo_model = *model_ptr;
+			start_x = mouse_input.get_x();
+			start_y = mouse_input.get_y();
 		}
 		move_last_x = mouse_input.get_x();
 		move_last_y = mouse_input.get_y();
@@ -1818,7 +1853,7 @@ private:
 		if (skybox_enabled) {
 			record_skybox_pass(command_buffer);
 		}
-		if (wireframe_enabled) {
+		if (wireframe_enabled || transform_type != TransformType::None) {
 			record_wireframe_pass(command_buffer);
 		}
 		record_imgui_pass(command_buffer);
