@@ -59,8 +59,8 @@ VertexOutput vert_main(VertexInput input) {
 [shader("fragment")]
 FragmentOutput frag_main(VertexOutput vertex_in) {
 	float3 normal = normalize(vertex_in.normal);
-	float4 sampled_albedo = samplers[0].Sample(vertex_in.uv);
-	float4 sampled_normal_map = samplers[1].Sample(vertex_in.uv) * 2.0 - 1.0;
+	float4 sampled_albedo = samplers[pc.texture_id - 1].Sample(vertex_in.uv);
+	float4 sampled_normal_map = samplers[pc.texture_id].Sample(vertex_in.uv) * 2.0 - 1.0;
 	sampled_normal_map.y *= -1;
 
 	if ((ubo.debug_options & (0x1 << 10)) != 0 || pc.texture_id == 0) {

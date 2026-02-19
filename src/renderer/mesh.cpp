@@ -72,6 +72,27 @@ bool Mesh::load_from_obj_file(const char *filepath) {
 		}
 	}
 
+	if (has_uv) {
+		// TODO: Look it up more
+		for (size_t i = 0; i < vertices.size(); i += 3) {
+			glm::vec3 edge1 = vertices[i + 1].position - vertices[i + 0].position;
+			glm::vec3 edge2 = vertices[i + 2].position - vertices[i + 0].position;
+			glm::vec2 uv_d1 = vertices[i + 1].uv - vertices[i + 0].uv;
+			glm::vec2 uv_d2 = vertices[i + 2].uv - vertices[i + 0].uv;
+
+			float f = 1.0f / (uv_d1.x * uv_d2.y - uv_d1.y * uv_d2.x);
+			glm::vec3 tangent = {
+				f * (uv_d2.y * edge1.x - uv_d1.y * edge2.x),
+				f * (uv_d2.y * edge1.y - uv_d1.y * edge2.y),
+				f * (uv_d2.y * edge1.z - uv_d1.y * edge2.z),
+			};
+
+			vertices[i].tangent = tangent;
+			vertices[i + 1].tangent = tangent;
+			vertices[i + 2].tangent = tangent;
+		}
+	}
+
 	core::logging::debug_log("Model loaded");
 	return res;
 }
