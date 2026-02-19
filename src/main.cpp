@@ -13,6 +13,7 @@
 #include <functional>
 #include <glm/ext/quaternion_transform.hpp>
 #include <glm/ext/quaternion_trigonometric.hpp>
+#include <glm/geometric.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/matrix.hpp>
 #include <initializer_list>
@@ -21,6 +22,7 @@
 #include <print>
 #include <set>
 #include <stdexcept>
+#include <sys/types.h>
 #include <vector>
 
 #include <vulkan/vk_platform.h>
@@ -270,7 +272,7 @@ private:
 		},
 		DescriptorLayoutBinding {
 			.location = 1,
-			.count = 2,
+			.count = 6,
 			.stage = DescriptorLayoutBinding::Stage::Fragment,
 			.type = DescriptorLayoutBinding::Type::CombinedSampler,
 		},
@@ -299,6 +301,11 @@ private:
 	UniquePtr<ImageViewPair<Image>> terrain_texture;
 	UniquePtr<ImageViewPair<Image>> terrain_normal_texture;
 
+	UniquePtr<ImageViewPair<Image>> cat_texture;
+	UniquePtr<ImageViewPair<Image>> cat_normal_texture;
+	UniquePtr<ImageViewPair<Image>> boulder_texture;
+	UniquePtr<ImageViewPair<Image>> boulder_normal_texture;
+
 	uint32_t current_frame = 0;
 
 	Camera camera;
@@ -312,6 +319,8 @@ private:
 	Mesh bunny_mesh;
 	Mesh dragon_mesh;
 	Mesh lucy_mesh;
+	Mesh cat_mesh;
+	Mesh boulder_mesh;
 
 	std::vector<Model> models;
 	std::set<uint32_t> id_cache;
@@ -338,7 +347,15 @@ private:
 			},
 			[this](double x, double y) { mouse_input.set_mouse_position(x, y); },
 			[this](double, double y_offset) {
-				camera.set_orbit_distance(camera.get_orbit_distance() + y_offset);
+				if (ImGui::IsWindowHovered(
+						ImGuiHoveredFlags_AnyWindow | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem
+					)) {
+					return;
+				}
+				camera.set_orbit_distance(
+					camera.get_orbit_distance() +
+					y_offset * std::clamp(camera.get_orbit_distance() / 10.0f, 0.01f, 10.0f)
+				);
 			}
 		);
 	}
@@ -396,6 +413,7 @@ private:
 		create_cubemap();
 
 		load_heightmap();
+		load_textures();
 
 		load_obj_model();
 
@@ -513,6 +531,8 @@ private:
 				"Stanford Bunny",
 				"Stanford Dragon",
 				"Stanford Lucy",
+				"Cat Statue",
+				"Boulder",
 			};
 
 			std::array mesh_ptrs = {
@@ -520,6 +540,8 @@ private:
 				&bunny_mesh,
 				&dragon_mesh,
 				&lucy_mesh,
+				&cat_mesh,
+				&boulder_mesh,
 			};
 			static int32_t selected_mesh_index = 0;
 			if (ImGui::BeginCombo("Mesh", mesh_names[selected_mesh_index])) {
@@ -549,10 +571,17 @@ private:
 					model.set_scale(glm::vec3(20));
 				} else if (mesh_ptr == &lucy_mesh) {
 					model.set_scale(glm::vec3(5));
+				} else if (mesh_ptr == &cat_mesh) {
+					model.set_scale(glm::vec3(8));
+					model.set_texture_id(3);
+				} else if (mesh_ptr == &boulder_mesh) {
+					model.set_texture_id(5);
 				}
 
 				models.emplace_back(std::move(model));
 				id_cache.insert(next_id);
+
+				current_picked_id = next_id;
 			}
 		}
 
@@ -695,7 +724,8 @@ private:
 						if (key_input.is_pressed(Key::Shift)) {
 							camera.set_point_of_interest(
 								camera.get_point_of_interest() +
-								(camera.get_up() * delta_y + camera.get_right() * -delta_x) * 0.2f
+								(camera.get_up() * delta_y + camera.get_right() * -delta_x) * 0.2f *
+									std::clamp(camera.get_orbit_distance() / 10.0f, 0.01f, 10.0f)
 							);
 						} else {
 							camera.rotate_to_poi(
@@ -706,6 +736,8 @@ private:
 					}
 					last_pos = glm::vec2(mouse_input.get_x(), mouse_input.get_y());
 				}
+
+				handle_transforms();
 
 				if (mouse_input.is_pressed(MouseButton::Left) && pressed_x < 0.0f &&
 					pressed_y < 0.0f) {
@@ -746,27 +778,7 @@ private:
 			}
 
 			if (auto_update_enabled) {
-				for (auto &model : models) {
-					if (model.get_mesh() == &bunny_mesh) {
-						model.set_position({
-							model.get_position().x,
-							std::max(std::sin((time + model.get_id()) * 5.0f) * 2.0f, 0.0) - 0.5f,
-							model.get_position().z,
-						});
-					} else if (model.get_mesh() == &cube_mesh) {
-						model.set_orientation(
-							model.get_orientation() *
-							glm::angleAxis(
-								glm::radians(90.0f) * static_cast<float>(delta),
-								glm::vec3(0, 1, 0)
-							) *
-							glm::angleAxis(
-								glm::radians(30.0f) * static_cast<float>(delta),
-								model.get_orientation() * glm::vec3(1, 0, 0)
-							)
-						);
-					}
-				}
+				do_auto_update(delta, time);
 			}
 
 			draw_frame(delta);
@@ -787,6 +799,105 @@ private:
 		}
 
 		device.wait_idle(current_frame);
+	}
+
+	void handle_transforms() {
+		static float move_last_x = 0.0f;
+		static float move_last_y = 0.0f;
+		static bool is_transforming = false;
+		if (key_input.is_pressed(Key::G)) {
+			if (is_transforming) {
+				for (auto &model : models) {
+					if (model.get_id() == current_picked_id) {
+						float distance = glm::distance(model.get_position(), camera.get_position());
+						if (key_input.is_pressed(Key::Shift)) {
+							model.set_position(
+								model.get_position() +
+								(camera.get_forward() *
+								 -static_cast<float>(mouse_input.get_y() - move_last_y)) *
+									distance * 0.005f
+							);
+						} else {
+							model.set_position(
+								model.get_position() +
+								(camera.get_right() *
+									 static_cast<float>(mouse_input.get_x() - move_last_x) +
+								 camera.get_up() *
+									 -static_cast<float>(mouse_input.get_y() - move_last_y)) *
+									distance * 0.005f
+							);
+						}
+					}
+				}
+			} else {
+				is_transforming = true;
+			}
+		} else if (key_input.is_pressed(Key::S)) {
+			if (is_transforming) {
+				for (auto &model : models) {
+					if (model.get_id() == current_picked_id) {
+						float distance = glm::distance(model.get_position(), camera.get_position());
+						model.set_scale(
+							model.get_scale() + glm::vec3(
+													(mouse_input.get_x() - move_last_x) +
+													(mouse_input.get_y() - move_last_y)
+												) * distance *
+													0.005f
+						);
+					}
+				}
+			} else {
+				is_transforming = true;
+			}
+		} else if (key_input.is_pressed(Key::R)) {
+			if (is_transforming) {
+				for (auto &model : models) {
+					if (model.get_id() == current_picked_id) {
+						model.set_orientation(
+							glm::angleAxis(
+								-static_cast<float>(mouse_input.get_x() - move_last_x) * 0.01f,
+								camera.get_up()
+							) *
+							glm::angleAxis(
+								-static_cast<float>(mouse_input.get_y() - move_last_y) * 0.01f,
+								camera.get_right()
+							) *
+							model.get_orientation()
+						);
+					}
+				}
+			} else {
+				is_transforming = true;
+			}
+		} else {
+			is_transforming = false;
+		}
+		move_last_x = mouse_input.get_x();
+		move_last_y = mouse_input.get_y();
+	}
+
+	void do_auto_update(double delta, double time) {
+		for (auto &model : models) {
+			if (model.get_mesh() == &bunny_mesh) {
+				model.set_position({
+					model.get_position().x,
+					std::max(std::sin((time + model.get_id()) * 5.0f) * 2.0f, 0.0) - 0.5f,
+					model.get_position().z,
+				});
+			} else if (model.get_mesh() == &cube_mesh) {
+				model.set_orientation(
+					model.get_orientation() *
+					glm::angleAxis(
+						glm::radians(90.0f) * static_cast<float>(delta),
+						glm::vec3(0, 1, 0)
+					) *
+					glm::angleAxis(
+						glm::radians(30.0f) * static_cast<float>(delta),
+						model.get_orientation() * glm::vec3(1, 0, 0)
+					)
+				);
+			}
+		}
 	}
 
 	void cleanup() {
@@ -1140,12 +1251,14 @@ private:
 	}
 
 	void create_vertex_buffer() {
-		std::array<Mesh *, 5> meshes = {
+		std::array meshes = {
 			static_cast<Mesh *>(terrain_mesh.get()),
-			&cube_mesh,
+			static_cast<Mesh *>(&cube_mesh),
 			&bunny_mesh,
 			&dragon_mesh,
 			&lucy_mesh,
+			&cat_mesh,
+			&boulder_mesh,
 		};
 
 		for (Mesh *mesh : meshes) {
@@ -1166,12 +1279,14 @@ private:
 	}
 
 	void create_index_buffer() {
-		std::array<Mesh *, 5> meshes = {
+		std::array meshes = {
 			static_cast<Mesh *>(terrain_mesh.get()),
-			&cube_mesh,
+			static_cast<Mesh *>(&cube_mesh),
 			&bunny_mesh,
 			&dragon_mesh,
-			&lucy_mesh
+			&lucy_mesh,
+			&cat_mesh,
+			&boulder_mesh,
 		};
 
 		for (Mesh *mesh : meshes) {
@@ -1254,6 +1369,26 @@ private:
 				vk::DescriptorImageInfo {
 					.sampler = sampler,
 					.imageView = terrain_normal_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = cat_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = cat_normal_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = boulder_texture->get_image_view().get_image_view(),
+					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+				},
+				vk::DescriptorImageInfo {
+					.sampler = sampler,
+					.imageView = boulder_normal_texture->get_image_view().get_image_view(),
 					.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
 				},
 			};
@@ -1392,12 +1527,7 @@ private:
 			}
 
 			push_constant_data.model_id = model.get_id();
-
-			if (model.get_mesh() == terrain_mesh.get()) { // Terrain
-				push_constant_data.texture_id = 1;
-			} else {
-				push_constant_data.texture_id = 0;
-			}
+			push_constant_data.texture_id = model.get_texture_id();
 
 			command_buffer.get_command_buffer()
 				.bindVertexBuffers(0, *model.get_mesh()->get_vertex_buffer()->get_buffer(), {0});
@@ -1975,18 +2105,26 @@ private:
 		);
 
 		terrain_mesh = std::make_unique<HeightmapTerrainMesh>(200, 200, 128, 128, 10, heightmap);
+	}
 
+	void load_textures() {
 		terrain_texture = load_image("textures/ground/forrest_ground_01_diff_4k.png", false);
 		terrain_normal_texture =
 			load_image("textures/ground/forrest_ground_01_nor_gl_4k.png", true);
 
-		debug_log("All terrain textures loaded");
+		cat_texture = load_image("textures/cat/concrete_cat_statue_diff_4k.png", false);
+		cat_normal_texture = load_image("textures/cat/concrete_cat_statue_nor_gl_4k.png", true);
+
+		boulder_texture = load_image("textures/boulder/boulder_01_diff_4k.png", false);
+		boulder_normal_texture = load_image("textures/boulder/boulder_01_nor_gl_4k.png", true);
 	}
 
 	void load_obj_model() {
 		bunny_mesh.load_from_obj_file("models/bunny.obj");
 		dragon_mesh.load_from_obj_file("models/dragon.obj");
 		lucy_mesh.load_from_obj_file("models/lucy-centered.obj");
+		cat_mesh.load_from_obj_file("models/concrete_cat_statue.obj");
+		boulder_mesh.load_from_obj_file("models/boulder_01.obj");
 	}
 
 	void create_models() {
@@ -1999,10 +2137,11 @@ private:
 		Model lucy(id++, static_cast<Mesh *>(&lucy_mesh));
 
 		terrain.set_name("Terrain");
+		terrain.set_texture_id(1);
 		cube.set_name("Cube");
 		cube.set_position({0, 1, 0});
 		bunny.set_name("Stanford Bunny");
-		bunny.set_position({0, 1.5, 3});
+		bunny.set_position({0, 1.5, 4});
 		bunny.set_scale(glm::vec3(20));
 		dragon.set_name("Stanford Dragon");
 		dragon.set_position({10, 0, 0});
