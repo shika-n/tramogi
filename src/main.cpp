@@ -2143,15 +2143,15 @@ private:
 	}
 
 	void load_textures() {
-		terrain_texture = load_image("textures/ground/forrest_ground_01_diff_4k.png", false);
+		terrain_texture = load_image("textures/ground/forrest_ground_01_diff_4k.tga", false);
 		terrain_normal_texture =
-			load_image("textures/ground/forrest_ground_01_nor_gl_4k.png", true);
+			load_image("textures/ground/forrest_ground_01_nor_gl_4k.tga", true);
 
-		cat_texture = load_image("textures/cat/concrete_cat_statue_diff_4k.png", false);
-		cat_normal_texture = load_image("textures/cat/concrete_cat_statue_nor_gl_4k.png", true);
+		cat_texture = load_image("textures/cat/concrete_cat_statue_diff_4k.tga", false);
+		cat_normal_texture = load_image("textures/cat/concrete_cat_statue_nor_gl_4k.tga", true);
 
-		boulder_texture = load_image("textures/boulder/boulder_01_diff_4k.png", false);
-		boulder_normal_texture = load_image("textures/boulder/boulder_01_nor_gl_4k.png", true);
+		boulder_texture = load_image("textures/boulder/boulder_01_diff_4k.tga", false);
+		boulder_normal_texture = load_image("textures/boulder/boulder_01_nor_gl_4k.tga", true);
 	}
 
 	void load_obj_model() {
