@@ -144,7 +144,7 @@ void Image::generate_mipmap(const CommandBuffer &cmd) {
 		.dstQueueFamilyIndex = vk::QueueFamilyIgnored,
 		.image = impl->image,
 		.subresourceRange = {
-			.aspectMask = vk::ImageAspectFlagBits::eColor,
+			.aspectMask = get_aspect_flags(),
 			.levelCount = 1,
 			.baseArrayLayer = 0,
 			.layerCount = 1,
@@ -181,7 +181,7 @@ void Image::generate_mipmap(const CommandBuffer &cmd) {
 		vk::ImageBlit blit = {
 			.srcSubresource =
 				{
-					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.aspectMask = get_aspect_flags(),
 					.mipLevel = i - 1,
 					.baseArrayLayer = 0,
 					.layerCount = 1,
@@ -189,7 +189,7 @@ void Image::generate_mipmap(const CommandBuffer &cmd) {
 			.srcOffsets = offsets,
 			.dstSubresource =
 				{
-					.aspectMask = vk::ImageAspectFlagBits::eColor,
+					.aspectMask = get_aspect_flags(),
 					.mipLevel = i,
 					.baseArrayLayer = 0,
 					.layerCount = 1,
@@ -258,7 +258,7 @@ void Image::as_color_target(const CommandBuffer &cmd) const {
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor,
+		get_aspect_flags(),
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eColorAttachmentOptimal;
@@ -281,7 +281,7 @@ void Image::as_transfer_src(const CommandBuffer &cmd) const {
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor,
+		get_aspect_flags(),
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eTransferSrcOptimal;
@@ -304,7 +304,7 @@ void Image::as_transfer_dst(const CommandBuffer &cmd) const {
 		vk::AccessFlagBits2::eColorAttachmentWrite,
 		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor,
+		get_aspect_flags(),
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eTransferDstOptimal;
@@ -327,7 +327,7 @@ void Image::as_sampled(const CommandBuffer &cmd) const {
 		vk::AccessFlagBits2::eShaderRead,
 		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-		vk::ImageAspectFlagBits::eColor,
+		get_aspect_flags(),
 		layer_count
 	);
 	impl->current_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
@@ -399,7 +399,7 @@ void DepthImage::as_depth_target(const CommandBuffer &cmd) const {
 		impl->current_stage_mask,
 		vk::PipelineStageFlagBits2::eEarlyFragmentTests |
 			vk::PipelineStageFlagBits2::eLateFragmentTests,
-		vk::ImageAspectFlagBits::eDepth,
+		get_aspect_flags(),
 		1
 	);
 	impl->current_layout = vk::ImageLayout::eDepthAttachmentOptimal;
